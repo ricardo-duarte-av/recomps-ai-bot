@@ -1,0 +1,31 @@
+matrix:
+  homeserver: https://matrix.example.org
+  user_id: "@recompbot:example.org"
+  password: "change-me"
+  device_name: recompbot
+  # Encrypts the E2EE keys stored in the database. Generate once and never change it
+  # (e.g. `openssl rand -hex 32`), or the bot will lose access to its encryption keys.
+  pickle_key: "change-me"
+  # Rooms the bot works in (room IDs or aliases). Anything else is ignored.
+  allowed_rooms:
+    - "!abcdefghijklmnop:example.org"
+    - "#recomps:example.org"
+  # Minimum power level to add/remove entries and confirm with reactions.
+  moderator_level: 50
+
+openai:
+  api_key: "sk-..."
+  model: gpt-5-mini
+  # Optional: "minimal" / "low" keep replies fast and cheap on GPT-5 models.
+  # Leave empty for models that don't support reasoning_effort.
+  reasoning_effort: low
+  # Optional: OpenAI-compatible endpoint.
+  base_url: ""
+
+github:
+  # Optional personal access token (no scopes needed) to raise the API rate limit
+  # from 60 to 5000 requests/hour.
+  token: ""
+
+database:
+  path: /data/sqlite.db

@@ -1,0 +1,11 @@
+services:
+  recompbot:
+    image: ghcr.io/ricardo-duarte-av/recomps-ai-bot:latest
+    # build: .   # uncomment to build locally instead of pulling
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      # Holds sqlite.db (the list, pending confirmations and the E2EE crypto store).
+      # A directory is mounted rather than the bare file because SQLite keeps
+      # -wal/-shm files next to the database.
+      - ./data:/data
