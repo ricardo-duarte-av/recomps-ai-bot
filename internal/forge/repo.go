@@ -69,8 +69,36 @@ func (r Repo) Name() string {
 }
 
 // URLPattern finds candidate URLs in free text: anything with a scheme,
-// or a bare well-known forge host.
-var URLPattern = regexp.MustCompile(`(?i)\bhttps?://[^\s<>"']+|\b(?:www\.)?(?:github\.com|gitlab\.com|codeberg\.org|gitea\.com|git\.sr\.ht)/[^\s<>"']+`)
+// or a bare well-known forge host. Brackets, parentheses and backticks end a URL so
+// Markdown links like [url](url) and `url` yield the URL itself.
+var URLPattern = regexp.MustCompile("(?i)\\bhttps?://[^\\s<>\"'\\[\\]()`]+|\\b(?:www\\.)?(?:github\\.com|gitlab\\.com|codeberg\\.org|gitea\\.com|git\\.sr\\.ht)/[^\\s<>\"'\\[\\]()`]+")
+
+// pagesHosts maps static-site hosting domains to the forge serving the repository:
+// https://user.github.io/project is built from https://github.com/user/project.
+var pagesHosts = map[string]string{
+	".github.io":     "github.com",
+	".gitlab.io":     "gitlab.com",
+	".codeberg.page": "codeberg.org",
+}
+
+// pagesToRepo rewrites a Pages site URL to its repository, or returns false.
+// A user site (user.github.io with no path) lives in the user.github.io repository.
+func pagesToRepo(host string, segs []string) (string, []string, bool) {
+	for suffix, forge := range pagesHosts {
+		user, ok := strings.CutSuffix(host, suffix)
+		if !ok || user == "" || strings.Contains(user, ".") {
+			continue
+		}
+		if len(segs) == 0 {
+			if forge == "codeberg.org" {
+				return forge, []string{user, "pages"}, true
+			}
+			return forge, []string{user, host}, true
+		}
+		return forge, []string{user, segs[0]}, true
+	}
+	return "", nil, false
+}
 
 // ParseRepo parses a repository URL. hostType resolves configured hosts
 // (it may be nil); well-known hosts are recognized automatically.
@@ -88,6 +116,15 @@ func ParseRepo(raw string, hostType func(host string) string) (Repo, error) {
 	if ignoredHosts[host] {
 		return Repo{}, ErrNotRepo
 	}
+	var segs []string
+	for _, s := range strings.Split(u.Path, "/") {
+		if s != "" {
+			segs = append(segs, s)
+		}
+	}
+	if forgeHost, repoSegs, ok := pagesToRepo(host, segs); ok {
+		host, segs = forgeHost, repoSegs
+	}
 	typ := ""
 	if hostType != nil {
 		typ = hostType(host)
@@ -96,12 +133,6 @@ func ParseRepo(raw string, hostType func(host string) string) (Repo, error) {
 		typ = knownHosts[host]
 	}
 
-	var segs []string
-	for _, s := range strings.Split(u.Path, "/") {
-		if s != "" {
-			segs = append(segs, s)
-		}
-	}
 	// Known forges always have at least owner/name; unknown hosts (cgit, gitweb...)
 	// may serve a repository at the top level, e.g. https://git.zx2c4.com/wireguard-tools.
 	minSegs := 2

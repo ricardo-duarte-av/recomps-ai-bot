@@ -26,6 +26,12 @@ func TestParseRepo(t *testing.T) {
 		"https://git.sr.ht/~user/repo/tree/main":      "https://git.sr.ht/~user/repo",
 		"https://git.zx2c4.com/wireguard-tools/tree/": "https://git.zx2c4.com/wireguard-tools",
 		"https://git.example.com:8443/Owner/Repo":     "https://git.example.com:8443/owner/repo",
+		// Pages sites map to the repository they're built from
+		"https://johannruiz.github.io/daytona-usa-2-web/": "https://github.com/johannruiz/daytona-usa-2-web",
+		"https://user.github.io/project/play/index.html":  "https://github.com/user/project",
+		"https://user.github.io/":                         "https://github.com/user/user.github.io",
+		"https://group.gitlab.io/project":                 "https://gitlab.com/group/project",
+		"https://someone.codeberg.page/game/":             "https://codeberg.org/someone/game",
 	}
 	for in, want := range cases {
 		r, err := ParseRepo(in, hostType)
@@ -74,5 +80,23 @@ and https://git.example.net/me/port plus https://example.com/some/page`
 	want := []string{"https://github.com/plaguedrriess/salsburysteaks", "https://git.example.net/me/port"}
 	if len(likely) != len(want) || likely[0] != want[0] || likely[1] != want[1] {
 		t.Errorf("likely forges = %v, want %v", likely, want)
+	}
+}
+
+func TestFindReposMarkdownLink(t *testing.T) {
+	text := "Play here 👉 [https://johannruiz.github.io/daytona-usa-2-web/](https://johannruiz.github.io/daytona-usa-2-web/) " +
+		"or see (https://github.com/zeldaret/oot) and `https://gitlab.com/a/b`"
+	var got []string
+	for _, r := range FindRepos(text, nil) {
+		got = append(got, r.URL())
+	}
+	want := []string{"https://github.com/johannruiz/daytona-usa-2-web", "https://github.com/zeldaret/oot", "https://gitlab.com/a/b"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got %v, want %v", got, want)
+		}
 	}
 }

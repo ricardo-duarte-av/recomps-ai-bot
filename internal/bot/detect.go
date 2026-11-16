@@ -77,9 +77,10 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 	log := zerolog.Ctx(ctx)
 	url := repo.URL()
 
+	log.Info().Msg("Checking detected repository link")
 	readme, err := b.forge.FetchReadme(ctx, repo)
 	if err != nil {
-		log.Debug().Err(err).Msg("Detected link but couldn't fetch README")
+		log.Warn().Err(err).Msg("Detected link but couldn't fetch README")
 		markFailed(ctx)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
@@ -92,13 +93,13 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 		return
 	}
 	if !info.IsGamePort {
-		log.Debug().Interface("info", info).Msg("Detected repo is not a game recomp/decomp")
+		log.Info().Interface("info", info).Msg("Detected repo is not a game recomp/decomp")
 		_ = b.store.MarkSeen(ctx, url, store.SeenNotGame)
 		return
 	}
 	if info.Game == "" || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
 		// A game port we couldn't fully describe: retry later rather than writing it off.
-		log.Debug().Interface("info", info).Msg("Detected game repo with incomplete info")
+		log.Warn().Interface("info", info).Msg("Detected game repo with incomplete info")
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
