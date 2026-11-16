@@ -43,7 +43,11 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 	case "remove":
 		b.handleRemove(ctx, evt, text, intent)
 	case "query":
-		b.handleQuery(ctx, evt, intent)
+		if repo, ok := b.repoFromIntent(text, intent); ok {
+			b.handleRepoQuery(ctx, evt, repo)
+		} else {
+			b.handleQuery(ctx, evt, intent)
+		}
 	default:
 		b.reply(ctx, evt, helpText)
 	}
@@ -69,6 +73,21 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 	repo, ok := b.repoFromIntent(text, intent)
 	if !ok {
 		b.reply(ctx, evt, "I need a repository URL to add (GitHub, GitLab, Gitea, Forgejo or any other git host), e.g. `add this repo to the list https://github.com/owner/repo`.")
+		return
+	}
+
+	// Check the list before spending a README fetch and an AI call: a repo that's
+	// already there only needs work if the moderator stated something new about it.
+	existing, err := b.store.GetByRepo(ctx, repo.URL())
+	if err != nil {
+		log.Err(err).Msg("Failed to look up repo")
+		markFailed(ctx)
+		b.reply(ctx, evt, "Database error, sorry.")
+		return
+	}
+	if existing != nil && !addsSomethingNew(existing, intent) {
+		b.reply(ctx, evt, fmt.Sprintf("%s is already in the list: %s of **%s** from %s, for %s.",
+			existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes))))
 		return
 	}
 
@@ -123,7 +142,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		return
 	}
 
-	if existing, err := b.store.GetByRepo(ctx, entry.RepoURL); err == nil && existing != nil &&
+	if existing != nil &&
 		existing.Game == entry.Game && existing.OriginalSystem == entry.OriginalSystem && existing.Kind == entry.Kind &&
 		containsAll(existing.OSes, entry.OSes) {
 		b.reply(ctx, evt, fmt.Sprintf("%s is already in the list for %s.", entry.RepoURL, oses.JoinDisplay(existing.OSes)))
@@ -199,6 +218,40 @@ func (b *Bot) prompt(ctx context.Context, evt *event.Event, action string, entry
 	}
 }
 
+// addsSomethingNew reports whether an add request states details that differ from
+// what's already stored for the repo (so it's an update rather than a duplicate).
+func addsSomethingNew(existing *store.Entry, intent *llm.Intent) bool {
+	return (intent.Game != "" && intent.Game != existing.Game) ||
+		(intent.OriginalSystem != "" && intent.OriginalSystem != existing.OriginalSystem) ||
+		(intent.Kind != "" && intent.Kind != existing.Kind) ||
+		!containsAll(existing.OSes, intent.OSes)
+}
+
+// handleRepoQuery answers "is <repo> in the list?".
+func (b *Bot) handleRepoQuery(ctx context.Context, evt *event.Event, repo forge.Repo) {
+	existing, err := b.store.GetByRepo(ctx, repo.URL())
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to look up repo")
+		markFailed(ctx)
+		b.reply(ctx, evt, "Database error, sorry.")
+		return
+	}
+	if existing == nil {
+		msg := fmt.Sprintf("%s isn't in the list.", repo.URL())
+		if pending, err := b.store.HasPendingAddForRepo(ctx, repo.URL()); err == nil && pending {
+			msg += " It's waiting for a moderator to confirm adding it."
+		}
+		b.reply(ctx, evt, msg)
+		return
+	}
+	b.reply(ctx, evt, fmt.Sprintf("Yes, %s is in the list: %s of **%s** from %s, for %s.",
+		existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes))))
+}
+
+// maxListAll is how many repositories a vague "what's in the list?" may print before
+// the bot summarizes instead of flooding the room.
+const maxListAll = 15
+
 func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Intent) {
 	log := zerolog.Ctx(ctx)
 	known, err := b.store.Games(ctx)
@@ -226,6 +279,12 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 	var entries []store.Entry
 	if query == "" {
 		entries, err = b.store.GetByGames(ctx, titlesOf(known))
+		if err == nil && len(entries) > maxListAll && len(intent.OSes) == 0 && intent.Kind == "" {
+			b.reply(ctx, evt, fmt.Sprintf("The list has %d repositories for %d games, too many to post here. "+
+				"Ask about a specific game, original system, platform or repository, e.g. `any recomps for Nintendo 64?`.",
+				len(entries), len(titlesOf(known))))
+			return
+		}
 	} else {
 		var titles []string
 		titles, err = b.llm.MatchTitles(ctx, query, known)

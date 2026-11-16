@@ -79,7 +79,7 @@ const intentPrompt = `You interpret chat messages sent to a Matrix bot that main
 Classify the message into exactly one intent:
 - "add": the user asks to add a repository to the list.
 - "remove": the user asks to remove a repository from the list.
-- "query": the user asks whether there are recomps/decomps/ports for a game, or asks about the list.
+- "query": the user asks whether there are recomps/decomps/ports for a game, whether a repository is already in the list, or asks about the list.
 - "unknown": anything else (greetings, unrelated questions, help requests).
 Extract only what the user explicitly states; use "" or [] for anything not stated. Do not guess.
 - repo_url: the repository URL if present.
