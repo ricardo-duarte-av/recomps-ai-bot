@@ -81,7 +81,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			return
 		}
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Msg("Added entry")
-		b.reply(ctx, target, fmt.Sprintf("Added %s (%s of **%s** for %s) for %s. Confirmed by %s.",
+		b.reply(ctx, target, fmt.Sprintf("Added %s (%s of **%s** from %s) for %s. Confirmed by %s.",
 			e.RepoURL, e.Kind, e.Game, e.OriginalSystem, oses.JoinDisplay(e.OSes), mention(evt.Sender)))
 	case "remove":
 		n, err := b.store.Remove(ctx, e.RepoURL, e.OSes)

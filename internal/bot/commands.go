@@ -128,7 +128,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		return
 	}
 
-	msg := fmt.Sprintf("Adding %s , a %s of **%s** for %s, for %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
+	msg := fmt.Sprintf("Adding %s , a %s of **%s** from %s, for %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
 		entry.RepoURL, entry.Kind, entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes), reactOK, reactCancel)
 	b.prompt(ctx, evt, "add", entry, msg)
 }

@@ -25,7 +25,7 @@ Repositories can be on **any git host**: GitHub (and GitHub Enterprise), GitLab 
 
 For **add**, the bot fetches the README, asks the model which game, original system, recomp/decomp and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
 
-> Adding https://github.com/owner/repo , a recomp of **Game** for System, for Windows, Linux and macOS.
+> Adding https://github.com/owner/repo , a recomp of **Game** from System, for Windows, Linux and macOS.
 
 with `OK` and `Cancel` reactions. Nothing is written until **a moderator** reacts with `OK` (✅/👍 also work); `Cancel` (❌/👎) discards it. **Remove** works the same way. Prompts expire after 24 hours.
 
