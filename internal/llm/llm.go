@@ -38,6 +38,17 @@ type Intent struct {
 	OriginalSystem string   `json:"original_system"`
 	Kind           string   `json:"kind"` // recomp | decomp | "" (unspecified)
 	OSes           []string `json:"oses"`
+
+	// Search filters (query intent only), resolved against what's in the list.
+	Titles  []string `json:"titles"`  // exact game titles in the list
+	Systems []string `json:"systems"` // exact original systems in the list
+	ListAll bool     `json:"list_all"`
+}
+
+// HasFilter reports whether a query narrows the list down in any way.
+func (i *Intent) HasFilter() bool {
+	return i.RepoURL != "" || i.Game != "" || i.OriginalSystem != "" || i.Kind != "" ||
+		len(i.OSes) > 0 || len(i.Titles) > 0 || len(i.Systems) > 0
 }
 
 // RepoInfo is what was extracted from a README.
@@ -79,15 +90,20 @@ const intentPrompt = `You interpret chat messages sent to a Matrix bot that main
 Classify the message into exactly one intent:
 - "add": the user asks to add a repository to the list.
 - "remove": the user asks to remove a repository from the list.
-- "query": the user asks whether there are recomps/decomps/ports for a game, whether a repository is already in the list, or asks about the list.
-- "unknown": anything else (greetings, unrelated questions, help requests).
-Extract only what the user explicitly states; use "" or [] for anything not stated. Do not guess.
+- "query": anything that asks about the list: whether a game, series, system, platform or repository is in it, what's available, what runs where. When in doubt and the message names a game, system, platform or repository, it's a query.
+- "unknown": only messages with nothing to look up (greetings, thanks, "what can you do?", unrelated chat).
+Extract only what the user explicitly states; use "", [] or false for anything not stated. Do not guess.
 - repo_url: the repository URL if present.
 - game: the original game's title, spelled out in full when the user uses a well-known abbreviation (e.g. "OoT" => "The Legend of Zelda: Ocarina of Time", "SM64" => "Super Mario 64").
 - original_system: the console/platform the game originally ran on, if stated (e.g. "Nintendo 64", "Game Boy Advance", "PlayStation 2").
 - kind: "recomp" or "decomp" if stated, otherwise "".
 - oses: target platforms (operating systems or consoles) the user mentions (for add: platforms the port runs on; for query/remove: platforms the user wants to play on).
 Distinguish the original system (where the game came FROM) from target platforms (where the port RUNS): "a SNES recomp for 3DS" => original_system "Super Nintendo Entertainment System", oses ["3ds"]. In queries, "games from N64" or "N64 recomps" means original_system; "can I play X on my 3DS/Vita/Steam Deck" means oses.
+For queries only, you are given the games currently in the list as "Title | Original system" lines:
+- titles: the exact titles (the part before " | ", copied character-for-character) of the games the user asks about. Account for accents, abbreviations, subtitles, numbering and regional names ("Pokemon" == "Pokémon", "OoT" and "Zelda 64" == "Ocarina of Time"). A series name without a specific entry ("Zelda") matches every entry in the series. [] if the user didn't ask about specific games or none match.
+- systems: the exact original systems (the part after " | ", copied character-for-character) the user asks about, e.g. "N64 decomps" => every spelling of Nintendo 64 in the list. [] if not asked or none match.
+- list_all: true only if the user explicitly asks to see the whole list ("what's in the list?", "list everything").
+For add/remove, leave titles and systems empty and list_all false.
 ` // osRules appended at runtime
 
 const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary) or a decompilation ("decomp", matching or non-matching source reconstruction) of a video game.
@@ -99,11 +115,6 @@ Extract:
 If the README does not say, use "" or [].
 - is_game_port: true only if this repository is a recompilation, decompilation or source port of one specific video game. False for emulators, recompiler tools/frameworks (e.g. N64Recomp itself), libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
 ` // osRules appended at runtime
-
-const matchPrompt = `You match a user's game query against a list of known games. Each known game is given as "Title | Original system".
-Return the exact titles (the part before " | ", copied character-for-character) that refer to the game the user asked about.
-Account for accents, abbreviations, subtitles, numbering and regional names (e.g. "Pokemon" == "Pokémon", "OoT" == "Ocarina of Time", "Zelda 64" == "Ocarina of Time" and "Majora's Mask").
-If the user names a broad series without a specific entry (e.g. "Zelda"), return every matching entry. If nothing matches, return [].`
 
 func (c *Client) complete(ctx context.Context, system, user, schemaName string, schema map[string]any, out any) error {
 	params := openai.ChatCompletionNewParams{
@@ -142,8 +153,10 @@ func (c *Client) complete(ctx context.Context, system, user, schemaName string, 
 	return nil
 }
 
-// ParseIntent interprets a chat message (with the bot mention removed).
-func (c *Client) ParseIntent(ctx context.Context, message string) (*Intent, error) {
+// ParseIntent interprets a chat message (with the bot mention removed). known lists
+// the games in the list as "Title | Original system", so a query's game and system
+// names can be resolved to exact stored values in the same call.
+func (c *Client) ParseIntent(ctx context.Context, message string, known []string) (*Intent, error) {
 	schema := objectSchema(map[string]any{
 		"intent":          enumProp("What the user wants", "add", "remove", "query", "unknown"),
 		"repo_url":        strProp("Repository URL, or empty"),
@@ -151,13 +164,44 @@ func (c *Client) ParseIntent(ctx context.Context, message string) (*Intent, erro
 		"original_system": strProp("Original console/platform, or empty"),
 		"kind":            enumProp("recomp, decomp, or empty if not stated", "recomp", "decomp", ""),
 		"oses":            osesProp("Target platforms (OSes or consoles) mentioned"),
+		"titles":          map[string]any{"type": "array", "description": "Query: exact known titles asked about", "items": map[string]any{"type": "string"}},
+		"systems":         map[string]any{"type": "array", "description": "Query: exact known original systems asked about", "items": map[string]any{"type": "string"}},
+		"list_all":        map[string]any{"type": "boolean", "description": "Query: user explicitly asks for the whole list"},
 	})
+	user := "Message: " + message + "\n\nGames in the list:\n"
+	if len(known) == 0 {
+		user += "(the list is empty)"
+	} else {
+		user += strings.Join(known, "\n")
+	}
 	var out Intent
-	if err := c.complete(ctx, intentPrompt+osRules, message, "intent", schema, &out); err != nil {
+	if err := c.complete(ctx, intentPrompt+osRules, user, "intent", schema, &out); err != nil {
 		return nil, err
 	}
 	out.OSes, _ = oses.NormalizeList(out.OSes)
+	out.Titles, out.Systems = resolveKnown(known, out.Titles, out.Systems)
 	return &out, nil
+}
+
+// resolveKnown keeps only titles and systems that really exist in known, so the
+// model can't invent filters.
+func resolveKnown(known, titles, systems []string) (validTitles, validSystems []string) {
+	isTitle, isSystem := map[string]bool{}, map[string]bool{}
+	for _, k := range known {
+		title, system, _ := strings.Cut(k, " | ")
+		isTitle[title], isSystem[system] = true, true
+	}
+	for _, t := range titles {
+		if isTitle[t] && !slices.Contains(validTitles, t) {
+			validTitles = append(validTitles, t)
+		}
+	}
+	for _, sys := range systems {
+		if isSystem[sys] && !slices.Contains(validSystems, sys) {
+			validSystems = append(validSystems, sys)
+		}
+	}
+	return validTitles, validSystems
 }
 
 // ExtractFromReadme determines game/system/kind/OSes from a README.
@@ -176,34 +220,4 @@ func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) 
 	}
 	out.OSes, _ = oses.NormalizeList(out.OSes)
 	return &out, nil
-}
-
-// MatchTitles returns the subset of known titles that the query refers to.
-// known entries are formatted "Title | System".
-func (c *Client) MatchTitles(ctx context.Context, query string, known []string) ([]string, error) {
-	if len(known) == 0 {
-		return nil, nil
-	}
-	schema := objectSchema(map[string]any{
-		"titles": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-	})
-	var out struct {
-		Titles []string `json:"titles"`
-	}
-	user := "User asked about: " + query + "\n\nKnown games:\n" + strings.Join(known, "\n")
-	if err := c.complete(ctx, matchPrompt, user, "matches", schema, &out); err != nil {
-		return nil, err
-	}
-	valid := map[string]bool{}
-	for _, k := range known {
-		title, _, _ := strings.Cut(k, " | ")
-		valid[title] = true
-	}
-	var titles []string
-	for _, t := range out.Titles {
-		if valid[t] && !slices.Contains(titles, t) {
-			titles = append(titles, t)
-		}
-	}
-	return titles, nil
 }

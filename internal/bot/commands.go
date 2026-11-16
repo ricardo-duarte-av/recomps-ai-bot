@@ -28,7 +28,14 @@ const helpText = "I keep a list of game recomps and decomps. Try:\n\n" +
 
 func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) {
 	log := zerolog.Ctx(ctx)
-	intent, err := b.llm.ParseIntent(ctx, text)
+	known, err := b.store.Games(ctx)
+	if err != nil {
+		log.Err(err).Msg("Failed to list games")
+		markFailed(ctx)
+		b.reply(ctx, evt, "Database error, sorry.")
+		return
+	}
+	intent, err := b.llm.ParseIntent(ctx, text, known)
 	if err != nil {
 		log.Err(err).Msg("Failed to parse intent")
 		markFailed(ctx)
@@ -45,8 +52,10 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 	case "query":
 		if repo, ok := b.repoFromIntent(text, intent); ok {
 			b.handleRepoQuery(ctx, evt, repo)
-		} else {
+		} else if intent.HasFilter() || intent.ListAll {
 			b.handleQuery(ctx, evt, intent)
+		} else {
+			b.reply(ctx, evt, helpText)
 		}
 	default:
 		b.reply(ctx, evt, helpText)
@@ -248,88 +257,121 @@ func (b *Bot) handleRepoQuery(ctx context.Context, evt *event.Event, repo forge.
 		existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes))))
 }
 
-// maxListAll is how many repositories a vague "what's in the list?" may print before
-// the bot summarizes instead of flooding the room.
-const maxListAll = 15
+// maxListed is how many repositories one reply may list with links; beyond that the
+// bot lists just the game titles so it doesn't flood the room.
+const maxListed = 15
 
+// maxTitles caps the titles-only summary.
+const maxTitles = 40
+
+// handleQuery runs a search: every filter the user stated (games, original systems,
+// recomp/decomp, target platforms) narrows the list, resolved by the intent call.
 func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Intent) {
 	log := zerolog.Ctx(ctx)
-	known, err := b.store.Games(ctx)
-	if err != nil {
-		log.Err(err).Msg("Failed to list games")
-		markFailed(ctx)
-		b.reply(ctx, evt, "Database error, sorry.")
-		return
-	}
-	if len(known) == 0 {
-		b.reply(ctx, evt, "The list is empty so far.")
-		return
-	}
-
-	var query string
-	switch {
-	case intent.Game != "" && intent.OriginalSystem != "":
-		query = intent.Game + " (originally on " + intent.OriginalSystem + ")"
-	case intent.Game != "":
-		query = intent.Game
-	case intent.OriginalSystem != "":
-		query = "any game originally released on " + intent.OriginalSystem
-	}
-
-	var entries []store.Entry
-	if query == "" {
-		entries, err = b.store.GetByGames(ctx, titlesOf(known))
-		if err == nil && len(entries) > maxListAll && len(intent.OSes) == 0 && intent.Kind == "" {
-			b.reply(ctx, evt, fmt.Sprintf("The list has %d repositories for %d games, too many to post here. "+
-				"Ask about a specific game, original system, platform or repository, e.g. `any recomps for Nintendo 64?`.",
-				len(entries), len(titlesOf(known))))
-			return
-		}
-	} else {
-		var titles []string
-		titles, err = b.llm.MatchTitles(ctx, query, known)
-		if err != nil {
-			log.Warn().Err(err).Msg("LLM title matching failed, falling back to substring search")
-			if intent.Game != "" {
-				entries, err = b.store.SearchGames(ctx, intent.Game)
-			}
-		} else {
-			entries, err = b.store.GetByGames(ctx, titles)
-		}
-	}
+	all, err := b.store.All(ctx)
 	if err != nil {
 		log.Err(err).Msg("Query failed")
 		markFailed(ctx)
 		b.reply(ctx, evt, "Database error, sorry.")
 		return
 	}
-
-	subject := intent.Game
-	if subject == "" {
-		subject = intent.OriginalSystem
+	if len(all) == 0 {
+		b.reply(ctx, evt, "The list is empty so far.")
+		return
 	}
+
+	titles := intent.Titles
+	if len(titles) == 0 && intent.Game != "" {
+		// The model found no match; a plain substring search catches anything it missed.
+		if found, err := b.store.SearchGames(ctx, intent.Game); err == nil {
+			titles = titlesOfEntries(found)
+		}
+		if len(titles) == 0 {
+			b.reply(ctx, evt, noMatch(intent))
+			return
+		}
+	}
+	if len(intent.Systems) == 0 && intent.OriginalSystem != "" && len(titles) == 0 {
+		// A system the list doesn't have at all.
+		b.reply(ctx, evt, noMatch(intent))
+		return
+	}
+
+	entries := slices.DeleteFunc(all, func(e store.Entry) bool {
+		return (len(titles) > 0 && !slices.Contains(titles, e.Game)) ||
+			(len(intent.Systems) > 0 && !slices.Contains(intent.Systems, e.OriginalSystem)) ||
+			(intent.Kind != "" && e.Kind != intent.Kind)
+	})
 	if len(intent.OSes) > 0 {
 		entries = filterOSes(entries, intent.OSes)
 	}
+	switch {
+	case len(entries) == 0:
+		b.reply(ctx, evt, noMatch(intent))
+	case len(entries) > maxListed:
+		b.reply(ctx, evt, formatTitles(entries))
+	default:
+		b.reply(ctx, evt, formatEntries(entries))
+	}
+}
+
+// noMatch describes an empty search result in terms of what the user asked.
+func noMatch(intent *llm.Intent) string {
+	what := "anything"
 	if intent.Kind != "" {
-		entries = slices.DeleteFunc(entries, func(e store.Entry) bool { return e.Kind != intent.Kind })
+		what = "any " + intent.Kind
 	}
-	if len(entries) == 0 {
-		what := "anything"
-		if intent.Kind != "" {
-			what = "any " + intent.Kind
-		}
-		msg := fmt.Sprintf("I don't have %s in the list", what)
-		if subject != "" {
-			msg += " for " + subject
-		}
-		if len(intent.OSes) > 0 {
-			msg += " on " + oses.JoinDisplay(intent.OSes)
-		}
-		b.reply(ctx, evt, msg+".")
-		return
+	msg := "I don't have " + what + " in the list"
+	switch {
+	case intent.Game != "":
+		msg += " for " + intent.Game
+	case len(intent.Titles) > 0:
+		msg += " for " + joinAnd(intent.Titles)
 	}
-	b.reply(ctx, evt, formatEntries(entries))
+	switch {
+	case intent.OriginalSystem != "":
+		msg += " from " + intent.OriginalSystem
+	case len(intent.Systems) > 0:
+		msg += " from " + joinAnd(intent.Systems)
+	}
+	if len(intent.OSes) > 0 {
+		msg += " on " + oses.JoinDisplay(intent.OSes)
+	}
+	return msg + "."
+}
+
+// formatTitles summarizes a large result as game titles only.
+func formatTitles(entries []store.Entry) string {
+	type game struct{ title, system string }
+	var games []game
+	seen := map[game]bool{}
+	for _, e := range entries {
+		g := game{e.Game, e.OriginalSystem}
+		if !seen[g] {
+			seen[g] = true
+			games = append(games, g)
+		}
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d repositories for %d games match. Ask about a specific game for the links.\n\n", len(entries), len(games))
+	for i, g := range games {
+		if i == maxTitles {
+			fmt.Fprintf(&sb, "- …and %d more\n", len(games)-maxTitles)
+			break
+		}
+		fmt.Fprintf(&sb, "- **%s** (%s)\n", g.title, g.system)
+	}
+	return sb.String()
+}
+
+func titlesOfEntries(entries []store.Entry) []string {
+	var out []string
+	for _, e := range entries {
+		if !slices.Contains(out, e.Game) {
+			out = append(out, e.Game)
+		}
+	}
+	return out
 }
 
 func formatEntries(entries []store.Entry) string {
@@ -370,14 +412,6 @@ func sortOSes(list []string) []string {
 	out := slices.Clone(list)
 	slices.SortFunc(out, func(a, b string) int { return slices.Index(oses.All, a) - slices.Index(oses.All, b) })
 	return out
-}
-
-func titlesOf(known []string) []string {
-	out := make([]string, len(known))
-	for i, k := range known {
-		out[i], _, _ = strings.Cut(k, " | ")
-	}
-	return slices.Compact(out)
 }
 
 func containsAll(have, want []string) bool {
