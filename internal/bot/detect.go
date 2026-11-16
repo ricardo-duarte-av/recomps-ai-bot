@@ -29,45 +29,65 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 		return
 	}
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		ctx = b.log.With().Str("component", "detect").Stringer("room", evt.RoomID).
+			Stringer("event", evt.ID).Logger().WithContext(ctx)
+
+		// ⏳ goes on the message only once a link actually needs checking, so
+		// links to repos already in the list (or dismissed) stay quiet.
+		var prog *progress
+		defer func() {
+			if prog != nil {
+				prog.finish(ctx)
+			}
+		}()
 		for _, repo := range repos {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-			log := b.log.With().Str("component", "detect").Stringer("room", evt.RoomID).
-				Stringer("event", evt.ID).Str("repo", repo.URL()).Logger()
-			b.detectRepo(log.WithContext(ctx), evt, repo)
-			cancel()
+			url := repo.URL()
+			if _, busy := b.detecting.LoadOrStore(url, true); busy {
+				continue // someone else posted it at the same moment
+			}
+			if b.needsDetection(ctx, url) {
+				if prog == nil {
+					ctx, prog = b.startWork(ctx, evt)
+				}
+				b.detectRepo(zerolog.Ctx(ctx).With().Str("repo", url).Logger().WithContext(ctx), evt, repo)
+			}
+			b.detecting.Delete(url)
 		}
 	}()
+}
+
+// needsDetection does the cheap checks: not in the list, not dismissed or recently
+// checked, and no add prompt already waiting.
+func (b *Bot) needsDetection(ctx context.Context, url string) bool {
+	if existing, err := b.store.GetByRepo(ctx, url); err != nil || existing != nil {
+		return false
+	}
+	if skip, err := b.store.ShouldSkipDetection(ctx, url); err != nil || skip {
+		return false
+	}
+	if pending, err := b.store.HasPendingAddForRepo(ctx, url); err != nil || pending {
+		return false
+	}
+	return true
 }
 
 func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo) {
 	log := zerolog.Ctx(ctx)
 	url := repo.URL()
 
-	// Two people posting the same link at once shouldn't produce two prompts.
-	if _, busy := b.detecting.LoadOrStore(url, true); busy {
-		return
-	}
-	defer b.detecting.Delete(url)
-
-	if existing, err := b.store.GetByRepo(ctx, url); err != nil || existing != nil {
-		return
-	}
-	if skip, err := b.store.ShouldSkipDetection(ctx, url); err != nil || skip {
-		return
-	}
-	if pending, err := b.store.HasPendingAddForRepo(ctx, url); err != nil || pending {
-		return
-	}
-
 	readme, err := b.forge.FetchReadme(ctx, repo)
 	if err != nil {
 		log.Debug().Err(err).Msg("Detected link but couldn't fetch README")
+		markFailed(ctx)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
 	info, err := b.llm.ExtractFromReadme(ctx, url, readme)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to classify detected repo")
+		markFailed(ctx)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}

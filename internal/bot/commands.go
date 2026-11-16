@@ -31,6 +31,7 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 	intent, err := b.llm.ParseIntent(ctx, text)
 	if err != nil {
 		log.Err(err).Msg("Failed to parse intent")
+		markFailed(ctx)
 		b.reply(ctx, evt, "Sorry, I couldn't understand that right now (AI request failed).")
 		return
 	}
@@ -115,6 +116,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		if err != nil {
 			why = fmt.Sprintf(" (couldn't read the README: %v)", err)
 		}
+		markFailed(ctx)
 		b.reply(ctx, evt, fmt.Sprintf(
 			"I couldn't work out %s for %s%s. Please tell me, e.g. `add this repo to the list %s , a Super Mario 64 recomp for Nintendo 64, for windows, linux and macos`.",
 			joinAnd(missing), repo.URL(), why, repo.URL()))
@@ -146,6 +148,7 @@ func (b *Bot) handleRemove(ctx context.Context, evt *event.Event, text string, i
 	existing, err := b.store.GetByRepo(ctx, repo.URL())
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to look up repo")
+		markFailed(ctx)
 		b.reply(ctx, evt, "Database error, sorry.")
 		return
 	} else if existing == nil {
@@ -185,6 +188,7 @@ func (b *Bot) prompt(ctx context.Context, evt *event.Event, action string, entry
 	})
 	if err != nil {
 		log.Err(err).Msg("Failed to save pending action")
+		markFailed(ctx)
 		b.reply(ctx, evt, "Database error, sorry.")
 		return
 	}
@@ -200,6 +204,7 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 	known, err := b.store.Games(ctx)
 	if err != nil {
 		log.Err(err).Msg("Failed to list games")
+		markFailed(ctx)
 		b.reply(ctx, evt, "Database error, sorry.")
 		return
 	}
@@ -235,6 +240,7 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 	}
 	if err != nil {
 		log.Err(err).Msg("Query failed")
+		markFailed(ctx)
 		b.reply(ctx, evt, "Database error, sorry.")
 		return
 	}

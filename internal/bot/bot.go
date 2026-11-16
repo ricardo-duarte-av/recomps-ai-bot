@@ -175,6 +175,8 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 		defer cancel()
 		log := b.log.With().Stringer("room", evt.RoomID).Stringer("sender", evt.Sender).Stringer("event", evt.ID).Logger()
 		ctx = log.WithContext(ctx)
+		ctx, prog := b.startWork(ctx, evt)
+		defer prog.finish(ctx)
 		b.handleCommand(ctx, evt, text)
 	}()
 }
@@ -259,6 +261,7 @@ func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, menti
 	}
 	resp, err := b.client.SendMessageEvent(ctx, evt.RoomID, event.EventMessage, &content)
 	if err != nil {
+		markFailed(ctx)
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to send reply")
 		return ""
 	}
