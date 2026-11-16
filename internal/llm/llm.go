@@ -42,6 +42,9 @@ type Intent struct {
 
 // RepoInfo is what was extracted from a README.
 type RepoInfo struct {
+	// IsGamePort is false for repos that aren't a recomp/decomp/port of a specific game
+	// (emulators, tools, libraries, mods, unrelated software).
+	IsGamePort     bool     `json:"is_game_port"`
 	Game           string   `json:"game"`
 	OriginalSystem string   `json:"original_system"`
 	Kind           string   `json:"kind"`
@@ -93,6 +96,7 @@ Extract:
 - kind: "recomp" if it is a recompilation/port produced by recompiling the original binary, "decomp" if it is a decompilation project.
 - oses: platforms on which the resulting game can be run natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
 If the README does not say, use "" or [].
+- is_game_port: true only if this repository is a recompilation, decompilation or source port of one specific video game. False for emulators, recompiler tools/frameworks (e.g. N64Recomp itself), libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
 ` // osRules appended at runtime
 
 const matchPrompt = `You match a user's game query against a list of known games. Each known game is given as "Title | Original system".
@@ -158,6 +162,7 @@ func (c *Client) ParseIntent(ctx context.Context, message string) (*Intent, erro
 // ExtractFromReadme determines game/system/kind/OSes from a README.
 func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) (*RepoInfo, error) {
 	schema := objectSchema(map[string]any{
+		"is_game_port":    map[string]any{"type": "boolean", "description": "Whether this repository is a recomp/decomp/source port of one specific game"},
 		"game":            strProp("Original game title"),
 		"original_system": strProp("Original console/platform"),
 		"kind":            enumProp("recomp or decomp", "recomp", "decomp", ""),

@@ -11,6 +11,7 @@ import (
 	"maunium.net/go/mautrix/id"
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/oses"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 )
 
 func classifyReaction(key string) (confirm, cancel bool) {
@@ -69,13 +70,24 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 	target := &event.Event{ID: promptID, RoomID: evt.RoomID, Sender: b.userID}
 	e := p.Entry
 	if !confirm {
+		if p.Action == "add" && e.Detected {
+			if err := b.store.MarkSeen(ctx, e.RepoURL, store.SeenDismissed); err != nil {
+				log.Err(err).Msg("Failed to remember dismissed repo")
+			}
+			b.reply(ctx, target, fmt.Sprintf("Dismissed by %s. I won't suggest %s again (a moderator can still add it explicitly).", mention(evt.Sender), e.RepoURL))
+			return
+		}
 		b.reply(ctx, target, fmt.Sprintf("Cancelled by %s.", mention(evt.Sender)))
 		return
 	}
 
 	switch p.Action {
 	case "add":
-		if err := b.store.Add(ctx, e, p.RequestedBy); err != nil {
+		addedBy := p.RequestedBy
+		if e.Detected {
+			addedBy = evt.Sender.String() // the link poster didn't ask for this; the confirming mod did
+		}
+		if err := b.store.Add(ctx, e, addedBy); err != nil {
 			log.Err(err).Msg("Failed to add entry")
 			b.reply(ctx, target, "Database error, the entry was not added.")
 			return

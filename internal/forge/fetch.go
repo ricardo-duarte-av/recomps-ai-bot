@@ -73,6 +73,9 @@ func (c *Client) HostType(host string) string {
 // ParseRepo parses a repository URL using this client's host configuration.
 func (c *Client) ParseRepo(raw string) (Repo, error) { return ParseRepo(raw, c.HostType) }
 
+// FindRepos finds all repository URLs in text using this client's host configuration.
+func (c *Client) FindRepos(text string) []Repo { return FindRepos(text, c.HostType) }
+
 // FindRepo finds the first repository URL in text using this client's host configuration.
 func (c *Client) FindRepo(text string) (Repo, bool) { return FindRepo(text, c.HostType) }
 

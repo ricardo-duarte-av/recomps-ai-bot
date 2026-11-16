@@ -59,3 +59,20 @@ func TestFindRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestFindReposAndLikelyForge(t *testing.T) {
+	text := `new release! https://github.com/PlagueDrRiess/salsburysteaks/releases/tag/v2026.11.24
+also https://github.com/plaguedrriess/SalsburySteaks again, https://www.youtube.com/watch?v=abc/def
+and https://git.example.net/me/port plus https://example.com/some/page`
+	repos := FindRepos(text, nil)
+	var likely []string
+	for _, r := range repos {
+		if LikelyForge(r) {
+			likely = append(likely, r.URL())
+		}
+	}
+	want := []string{"https://github.com/plaguedrriess/salsburysteaks", "https://git.example.net/me/port"}
+	if len(likely) != len(want) || likely[0] != want[0] || likely[1] != want[1] {
+		t.Errorf("likely forges = %v, want %v", likely, want)
+	}
+}

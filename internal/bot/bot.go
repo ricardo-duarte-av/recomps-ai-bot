@@ -38,6 +38,7 @@ type Bot struct {
 	startTime   time.Time
 
 	createEvents sync.Map // id.RoomID -> *event.Event (m.room.create never changes)
+	detecting    sync.Map // repo URL -> true while link detection is checking it
 }
 
 func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {
@@ -149,10 +150,18 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 		return
 	}
 	content := evt.Content.AsMessage()
-	if content.MsgType != event.MsgText || content.RelatesTo.GetReplaceID() != "" {
+	if content.RelatesTo.GetReplaceID() != "" {
 		return
 	}
-	if !b.isMentioned(content) {
+	if content.MsgType != event.MsgText && content.MsgType != event.MsgNotice {
+		return
+	}
+	if content.MsgType == event.MsgNotice || !b.isMentioned(content) {
+		// Not a command: just watch for repository links (notices too, e.g. feed bots).
+		if b.cfg.Detect.IsEnabled() {
+			content.RemoveReplyFallback()
+			b.detectLinks(evt, content.Body)
+		}
 		return
 	}
 	content.RemoveReplyFallback()
@@ -235,8 +244,19 @@ func (b *Bot) stripMention(body string) string {
 
 // reply sends a markdown message as a reply to evt and returns its event ID.
 func (b *Bot) reply(ctx context.Context, evt *event.Event, markdown string) id.EventID {
+	return b.send(ctx, evt, markdown, false)
+}
+
+// send is reply with an optional @room mention.
+func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, mentionRoom bool) id.EventID {
 	content := format.RenderMarkdown(markdown, true, false)
 	content.SetReply(evt)
+	if mentionRoom {
+		if content.Mentions == nil {
+			content.Mentions = &event.Mentions{}
+		}
+		content.Mentions.Room = true
+	}
 	resp, err := b.client.SendMessageEvent(ctx, evt.RoomID, event.EventMessage, &content)
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to send reply")

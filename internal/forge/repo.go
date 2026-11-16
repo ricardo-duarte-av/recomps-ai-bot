@@ -139,3 +139,27 @@ func FindRepo(text string, hostType func(host string) string) (Repo, bool) {
 	}
 	return Repo{}, false
 }
+
+// FindRepos returns all distinct repository URLs found in text, in order.
+func FindRepos(text string, hostType func(host string) string) []Repo {
+	var out []Repo
+	seen := map[string]bool{}
+	for _, m := range URLPattern.FindAllString(text, -1) {
+		r, err := ParseRepo(m, hostType)
+		if err != nil || seen[r.URL()] {
+			continue
+		}
+		seen[r.URL()] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+// LikelyForge reports whether a repo's host is probably a git forge: a known or
+// configured forge host, or a host name containing "git" (git.example.org, gitea.x, ...).
+func LikelyForge(r Repo) bool {
+	if r.Type != "" {
+		return true
+	}
+	return strings.Contains(r.Host, "git")
+}

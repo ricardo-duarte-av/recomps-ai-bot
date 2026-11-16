@@ -16,7 +16,22 @@ type Config struct {
 	Forges   Forges   `yaml:"forges"`
 	Database Database `yaml:"database"`
 	Web      Web      `yaml:"web"`
+	Detect   Detect   `yaml:"detect"`
 }
+
+// Detect configures automatic detection of repository links posted in rooms.
+type Detect struct {
+	// Enabled defaults to true when unset.
+	Enabled *bool `yaml:"enabled"`
+	// MentionRoom adds an @room ping to suggestions (defaults to true). The bot needs
+	// the room's "notify everyone" power level for the ping to notify anyone.
+	MentionRoom *bool `yaml:"mention_room"`
+	// MaxLinksPerMessage caps how many repos are checked from one message (default 3).
+	MaxLinksPerMessage int `yaml:"max_links_per_message"`
+}
+
+func (d Detect) IsEnabled() bool     { return d.Enabled == nil || *d.Enabled }
+func (d Detect) ShouldMention() bool { return d.MentionRoom == nil || *d.MentionRoom }
 
 // Web configures the public read-only list page.
 type Web struct {
@@ -87,6 +102,9 @@ func Load(path string) (*Config, error) {
 	}
 	if c.OpenAI.Model == "" {
 		c.OpenAI.Model = "gpt-5-mini"
+	}
+	if c.Detect.MaxLinksPerMessage <= 0 {
+		c.Detect.MaxLinksPerMessage = 3
 	}
 	if c.Web.Listen == "" {
 		c.Web.Listen = "0.0.0.0:8080"

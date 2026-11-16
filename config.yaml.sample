@@ -48,6 +48,17 @@ forges:
 database:
   path: /data/sqlite.db
 
+detect:
+  # Watch messages in the allowed rooms for git repository links (any URL on a known
+  # forge, or whose host contains "git"). If a repo isn't in the DB and the model says
+  # it's a game recomp/decomp, the bot offers to add it; a moderator confirms with OK.
+  enabled: true
+  # Ping the room (@room) with each suggestion. The bot needs the room's
+  # "notify everyone" power level (usually 50) for this to actually notify people.
+  mention_room: true
+  # Maximum number of repository links checked per message.
+  max_links_per_message: 3
+
 web:
   # Read-only, searchable page listing everything in the database.
   enabled: true

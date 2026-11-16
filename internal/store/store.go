@@ -28,6 +28,13 @@ CREATE TABLE IF NOT EXISTS recomps (
 );
 CREATE INDEX IF NOT EXISTS recomps_game_idx ON recomps (game);
 
+-- Repos found by link detection that should not be suggested (again) for a while.
+CREATE TABLE IF NOT EXISTS seen_repos (
+	repo_url   TEXT PRIMARY KEY,
+	status     TEXT NOT NULL,
+	checked_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pending_actions (
 	event_id     TEXT PRIMARY KEY,
 	room_id      TEXT NOT NULL,
@@ -48,6 +55,8 @@ type Entry struct {
 	OriginalSystem string   `json:"original_system"`
 	Kind           string   `json:"kind"`
 	OSes           []string `json:"oses"`
+	// Detected marks an add prompt raised by link detection rather than a moderator.
+	Detected bool `json:"detected,omitempty"`
 }
 
 // Pending is an add/remove awaiting moderator confirmation.
@@ -260,4 +269,56 @@ func (s *Store) HasPending(ctx context.Context, eventID string) (bool, error) {
 func (s *Store) PurgeExpired(ctx context.Context) error {
 	_, err := s.DB.Exec(ctx, `DELETE FROM pending_actions WHERE created_at <= $1`, time.Now().Add(-PendingTTL).Unix())
 	return err
+}
+
+// Statuses for seen_repos.
+const (
+	SeenDismissed = "dismissed" // a moderator cancelled the suggestion; never suggest again
+	SeenNotGame   = "not_game"  // not a game recomp/decomp; re-check after SeenNotGameTTL
+	SeenFailed    = "failed"    // README/LLM failed; re-check after SeenFailedTTL
+)
+
+const (
+	SeenNotGameTTL = 30 * 24 * time.Hour
+	SeenFailedTTL  = 24 * time.Hour
+)
+
+// MarkSeen records the outcome of checking a detected repo.
+func (s *Store) MarkSeen(ctx context.Context, repoURL, status string) error {
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO seen_repos (repo_url, status, checked_at) VALUES ($1, $2, $3)
+		ON CONFLICT (repo_url) DO UPDATE SET status = excluded.status, checked_at = excluded.checked_at`,
+		repoURL, status, time.Now().Unix())
+	return err
+}
+
+// ShouldSkipDetection reports whether a detected repo was recently checked or dismissed.
+func (s *Store) ShouldSkipDetection(ctx context.Context, repoURL string) (bool, error) {
+	var status string
+	var checked int64
+	err := s.DB.QueryRow(ctx, `SELECT status, checked_at FROM seen_repos WHERE repo_url = $1`, repoURL).Scan(&status, &checked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	age := time.Since(time.Unix(checked, 0))
+	switch status {
+	case SeenDismissed:
+		return true, nil
+	case SeenNotGame:
+		return age < SeenNotGameTTL, nil
+	default:
+		return age < SeenFailedTTL, nil
+	}
+}
+
+// HasPendingAddForRepo reports whether an add prompt for repoURL is already awaiting confirmation.
+func (s *Store) HasPendingAddForRepo(ctx context.Context, repoURL string) (bool, error) {
+	var n int
+	err := s.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM pending_actions
+		WHERE action = 'add' AND json_extract(payload, '$.repo_url') = $1 AND created_at > $2`,
+		repoURL, time.Now().Add(-PendingTTL).Unix()).Scan(&n)
+	return n > 0, err
 }
