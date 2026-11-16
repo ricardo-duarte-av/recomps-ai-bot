@@ -108,7 +108,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		missing = append(missing, "whether it's a recomp or a decomp")
 	}
 	if len(entry.OSes) == 0 {
-		missing = append(missing, "the supported OSes")
+		missing = append(missing, "the supported platforms")
 	}
 	if len(missing) > 0 {
 		var why string

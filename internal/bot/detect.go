@@ -71,9 +71,15 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
-	if !info.IsGamePort || info.Game == "" || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
-		log.Debug().Interface("info", info).Msg("Detected repo is not a (complete) game recomp/decomp")
+	if !info.IsGamePort {
+		log.Debug().Interface("info", info).Msg("Detected repo is not a game recomp/decomp")
 		_ = b.store.MarkSeen(ctx, url, store.SeenNotGame)
+		return
+	}
+	if info.Game == "" || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
+		// A game port we couldn't fully describe: retry later rather than writing it off.
+		log.Debug().Interface("info", info).Msg("Detected game repo with incomplete info")
+		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
 

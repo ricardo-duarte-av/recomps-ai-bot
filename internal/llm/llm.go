@@ -72,8 +72,8 @@ func objectSchema(props map[string]any) map[string]any {
 	return map[string]any{"type": "object", "properties": props, "required": keys, "additionalProperties": false}
 }
 
-var osRules = `Canonical OS values: ` + strings.Join(oses.All, ", ") + `.
-Map distributions and devices onto them: Steam Deck, SteamOS, Fedora, Ubuntu, Debian, Arch, Mint and any other Linux distro => linux; OSX, OS X, Mac, macOS => macos; Win/PC => windows; Nintendo Switch => switch; browser/WebAssembly => web.`
+var osRules = `Target platforms can be operating systems or consoles/handhelds (a port from one console to another, e.g. a SNES game recompiled to run on the Nintendo 3DS, targets "3ds"). Canonical platform values: ` + strings.Join(oses.All, ", ") + `.
+Map distributions and devices onto them: Steam Deck, SteamOS, Fedora, Ubuntu, Debian, Arch, Mint and any other Linux distro => linux; OSX, OS X, Mac, macOS => macos; Win/PC => windows; Nintendo Switch => switch; New 3DS/2DS => 3ds; DSi => nds; PlayStation Vita => vita; Xbox Series X|S => xboxone; browser/WebAssembly => web.`
 
 const intentPrompt = `You interpret chat messages sent to a Matrix bot that maintains a list of game recompilations ("recomps") and decompilations ("decomps").
 Classify the message into exactly one intent:
@@ -86,7 +86,8 @@ Extract only what the user explicitly states; use "" or [] for anything not stat
 - game: the original game's title, spelled out in full when the user uses a well-known abbreviation (e.g. "OoT" => "The Legend of Zelda: Ocarina of Time", "SM64" => "Super Mario 64").
 - original_system: the console/platform the game originally ran on, if stated (e.g. "Nintendo 64", "Game Boy Advance", "PlayStation 2").
 - kind: "recomp" or "decomp" if stated, otherwise "".
-- oses: target operating systems the user mentions (for add: platforms the port supports; for query/remove: platforms the user filters on).
+- oses: target platforms (operating systems or consoles) the user mentions (for add: platforms the port runs on; for query/remove: platforms the user wants to play on).
+Distinguish the original system (where the game came FROM) from target platforms (where the port RUNS): "a SNES recomp for 3DS" => original_system "Super Nintendo Entertainment System", oses ["3ds"]. In queries, "games from N64" or "N64 recomps" means original_system; "can I play X on my 3DS/Vita/Steam Deck" means oses.
 ` // osRules appended at runtime
 
 const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary) or a decompilation ("decomp", matching or non-matching source reconstruction) of a video game.
@@ -94,7 +95,7 @@ Extract:
 - game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask").
 - original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"). Use full common names.
 - kind: "recomp" if it is a recompilation/port produced by recompiling the original binary, "decomp" if it is a decompilation project.
-- oses: platforms on which the resulting game can be run natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
+- oses: platforms (operating systems or consoles/handhelds) on which the resulting game runs natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
 If the README does not say, use "" or [].
 - is_game_port: true only if this repository is a recompilation, decompilation or source port of one specific video game. False for emulators, recompiler tools/frameworks (e.g. N64Recomp itself), libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
 ` // osRules appended at runtime
@@ -149,7 +150,7 @@ func (c *Client) ParseIntent(ctx context.Context, message string) (*Intent, erro
 		"game":            strProp("Original game title, or empty"),
 		"original_system": strProp("Original console/platform, or empty"),
 		"kind":            enumProp("recomp, decomp, or empty if not stated", "recomp", "decomp", ""),
-		"oses":            osesProp("Target operating systems mentioned"),
+		"oses":            osesProp("Target platforms (OSes or consoles) mentioned"),
 	})
 	var out Intent
 	if err := c.complete(ctx, intentPrompt+osRules, message, "intent", schema, &out); err != nil {
@@ -166,7 +167,7 @@ func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) 
 		"game":            strProp("Original game title"),
 		"original_system": strProp("Original console/platform"),
 		"kind":            enumProp("recomp or decomp", "recomp", "decomp", ""),
-		"oses":            osesProp("Platforms the result runs on natively"),
+		"oses":            osesProp("Platforms (OSes or consoles) the result runs on natively"),
 	})
 	var out RepoInfo
 	user := "Repository: " + repoURL + "\n\nREADME:\n" + readme

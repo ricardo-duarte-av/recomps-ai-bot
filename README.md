@@ -35,7 +35,7 @@ with `OK` and `Cancel` reactions. Nothing is written until **a moderator** react
 
 with the same `OK`/`Cancel` reactions. `OK` from a moderator adds it; `Cancel` dismisses it for good. Repos that aren't games (emulators, tools, libraries...) are remembered for 30 days so posting them again costs nothing. Configure under `detect:` in `config.yaml`.
 
-Each supported OS is stored as its own row. OS names are normalized to `windows, linux, macos, android, ios, switch, web, freebsd` — e.g. Steam Deck/Fedora/Ubuntu/Debian/Arch → `linux`, OSX/Mac → `macos`.
+Each supported target platform is stored as its own row. Targets can be operating systems or other consoles/handhelds (e.g. a SNES game recompiled for the Nintendo 3DS): `windows, linux, macos, freebsd, haiku, dos, android, ios, web, switch, 3ds, nds, wiiu, wii, gamecube, n64, gba, vita, psp, ps2, ps3, ps4, ps5, xbox, xbox360, xboxone, dreamcast`. Names are normalized, e.g. Steam Deck/Fedora/Ubuntu/Debian/Arch → `linux`, OSX/Mac → `macos`, New 3DS/2DS → `3ds`, Xbox Series X|S → `xboxone`.
 
 ## Web page
 
