@@ -27,5 +27,23 @@ github:
   # from 60 to 5000 requests/hour.
   token: ""
 
+forges:
+  # Repos can be on any git host. github.com, gitlab.com, codeberg.org, gitea.com,
+  # git.sr.ht and the big GNOME/KDE/freedesktop/Debian GitLabs are known out of the box.
+  # Any other host is auto-detected (Gitea/Forgejo API, then GitLab API, then raw
+  # README URLs for cgit/SourceHut-style hosts, then the repo's web page).
+  # List a host here only to skip detection or to give it an API token
+  # (needed for private repos or rate limits).
+  hosts: []
+  #  - host: git.example.org
+  #    type: gitlab          # github | gitlab | gitea | forgejo | generic
+  #    token: ""
+  #  - host: github.mycompany.com
+  #    type: github          # GitHub Enterprise
+  #    token: ""
+  # Fetching from private/loopback IPs is refused by default. Enable this if your
+  # self-hosted forge is on your LAN.
+  allow_private_networks: false
+
 database:
   path: /data/sqlite.db

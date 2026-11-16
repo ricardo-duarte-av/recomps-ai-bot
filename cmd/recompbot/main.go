@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/bot"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
-	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/github"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 )
@@ -41,7 +42,7 @@ func main() {
 
 	b := bot.New(cfg, log, st,
 		llm.New(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL, cfg.OpenAI.ReasoningEffort),
-		github.NewClient(cfg.GitHub.Token))
+		forge.NewClient(forgeHosts(cfg), cfg.Forges.AllowPrivateNetworks))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -50,4 +51,16 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info().Msg("Shut down")
+}
+
+// forgeHosts merges the legacy github.token setting with forges.hosts.
+func forgeHosts(cfg *config.Config) map[string]forge.Host {
+	hosts := map[string]forge.Host{}
+	if cfg.GitHub.Token != "" {
+		hosts["github.com"] = forge.Host{Type: forge.GitHub, Token: cfg.GitHub.Token}
+	}
+	for _, h := range cfg.Forges.Hosts {
+		hosts[strings.ToLower(h.Host)] = forge.Host{Type: h.Type, Token: h.Token}
+	}
+	return hosts
 }

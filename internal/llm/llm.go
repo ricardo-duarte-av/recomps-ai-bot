@@ -86,7 +86,7 @@ Extract only what the user explicitly states; use "" or [] for anything not stat
 - oses: target operating systems the user mentions (for add: platforms the port supports; for query/remove: platforms the user filters on).
 ` // osRules appended at runtime
 
-const readmePrompt = `You read the README of a GitHub repository that is a recompilation ("recomp", static recompilation / port of a game binary) or a decompilation ("decomp", matching or non-matching source reconstruction) of a video game.
+const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary) or a decompilation ("decomp", matching or non-matching source reconstruction) of a video game.
 Extract:
 - game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask").
 - original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"). Use full common names.

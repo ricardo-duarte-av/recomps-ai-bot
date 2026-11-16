@@ -10,7 +10,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
-	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/github"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/oses"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
@@ -49,14 +49,14 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 }
 
 // repoFromIntent prefers a URL literally present in the message over the LLM's copy of it.
-func repoFromIntent(text string, intent *llm.Intent) (github.Repo, bool) {
-	if r, ok := github.FindRepo(text); ok {
+func (b *Bot) repoFromIntent(text string, intent *llm.Intent) (forge.Repo, bool) {
+	if r, ok := b.forge.FindRepo(text); ok {
 		return r, true
 	}
-	if r, err := github.ParseRepo(intent.RepoURL); err == nil {
+	if r, err := b.forge.ParseRepo(intent.RepoURL); err == nil {
 		return r, true
 	}
-	return github.Repo{}, false
+	return forge.Repo{}, false
 }
 
 func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, intent *llm.Intent) {
@@ -65,14 +65,14 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		b.reply(ctx, evt, "Only moderators can add entries to the list.")
 		return
 	}
-	repo, ok := repoFromIntent(text, intent)
+	repo, ok := b.repoFromIntent(text, intent)
 	if !ok {
-		b.reply(ctx, evt, "I need a GitHub repository URL to add, e.g. `add this repo to the list https://github.com/owner/repo`.")
+		b.reply(ctx, evt, "I need a repository URL to add (GitHub, GitLab, Gitea, Forgejo or any other git host), e.g. `add this repo to the list https://github.com/owner/repo`.")
 		return
 	}
 
 	entry := store.Entry{RepoURL: repo.URL()}
-	readme, err := b.gh.FetchReadme(ctx, repo)
+	readme, err := b.forge.FetchReadme(ctx, repo)
 	if err != nil {
 		log.Warn().Err(err).Str("repo", repo.URL()).Msg("Failed to fetch README")
 	} else {
@@ -138,7 +138,7 @@ func (b *Bot) handleRemove(ctx context.Context, evt *event.Event, text string, i
 		b.reply(ctx, evt, "Only moderators can remove entries from the list.")
 		return
 	}
-	repo, ok := repoFromIntent(text, intent)
+	repo, ok := b.repoFromIntent(text, intent)
 	if !ok {
 		b.reply(ctx, evt, "Which repository? e.g. `remove repo https://github.com/owner/repo from the list`.")
 		return

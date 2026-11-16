@@ -21,6 +21,8 @@ Moderators (power level ≥ `moderator_level`, default 50):
 @recompbot remove repo https://github.com/owner/repo from the list
 ```
 
+Repositories can be on **any git host**: GitHub (and GitHub Enterprise), GitLab (gitlab.com or self-hosted, nested groups included), Gitea, Forgejo/Codeberg, SourceHut, cgit, and so on. Hosts the bot doesn't know are auto-detected; see `forges` in `config.yaml.sample` to set a host's type or an API token.
+
 For **add**, the bot fetches the README, asks the model which game, original system, recomp/decomp and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
 
 > Adding https://github.com/owner/repo , a recomp of **Game** for System, for Windows, Linux and macOS.
@@ -45,6 +47,7 @@ Images are built by GitHub Actions on every push and published to `ghcr.io/ricar
 
 ```sh
 go test -tags goolm ./...
+RECOMPBOT_LIVE=1 go test -tags goolm -run Live ./internal/forge   # fetch READMEs from real forges
 go run -tags goolm ./cmd/recompbot -config config.yaml -debug
 ```
 

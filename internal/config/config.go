@@ -13,6 +13,7 @@ type Config struct {
 	Matrix   Matrix   `yaml:"matrix"`
 	OpenAI   OpenAI   `yaml:"openai"`
 	GitHub   GitHub   `yaml:"github"`
+	Forges   Forges   `yaml:"forges"`
 	Database Database `yaml:"database"`
 }
 
@@ -35,6 +36,20 @@ type OpenAI struct {
 }
 
 type GitHub struct {
+	Token string `yaml:"token"`
+}
+
+// Forges configures git hosts other than the well-known ones.
+type Forges struct {
+	// Hosts lists self-hosted forges and/or API tokens. Hosts not listed here are auto-detected.
+	Hosts []ForgeHost `yaml:"hosts"`
+	// AllowPrivateNetworks permits fetching from private/loopback addresses (e.g. a LAN Gitea).
+	AllowPrivateNetworks bool `yaml:"allow_private_networks"`
+}
+
+type ForgeHost struct {
+	Host  string `yaml:"host"`
+	Type  string `yaml:"type"` // github | gitlab | gitea | forgejo | generic
 	Token string `yaml:"token"`
 }
 
@@ -78,6 +93,16 @@ func Load(path string) (*Config, error) {
 	req(c.OpenAI.APIKey, "openai.api_key")
 	if len(c.Matrix.AllowedRooms) == 0 {
 		errs = append(errs, errors.New("matrix.allowed_rooms must list at least one room"))
+	}
+	for i, h := range c.Forges.Hosts {
+		if h.Host == "" {
+			errs = append(errs, fmt.Errorf("forges.hosts[%d].host is required", i))
+		}
+		switch h.Type {
+		case "", "github", "gitlab", "gitea", "forgejo", "generic":
+		default:
+			errs = append(errs, fmt.Errorf("forges.hosts[%d].type %q must be github, gitlab, gitea, forgejo or generic", i, h.Type))
+		}
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, err

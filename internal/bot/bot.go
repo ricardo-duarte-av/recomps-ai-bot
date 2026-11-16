@@ -18,7 +18,7 @@ import (
 	"maunium.net/go/mautrix/id"
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
-	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/github"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 )
@@ -30,7 +30,7 @@ type Bot struct {
 	crypto *cryptohelper.CryptoHelper
 	store  *store.Store
 	llm    *llm.Client
-	gh     *github.Client
+	forge  *forge.Client
 
 	userID      id.UserID
 	displayName string
@@ -40,8 +40,8 @@ type Bot struct {
 	createEvents sync.Map // id.RoomID -> *event.Event (m.room.create never changes)
 }
 
-func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, gh *github.Client) *Bot {
-	return &Bot{cfg: cfg, log: log, store: st, llm: l, gh: gh, rooms: map[id.RoomID]bool{}}
+func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {
+	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, rooms: map[id.RoomID]bool{}}
 }
 
 // Run logs in, sets up encryption, joins the configured rooms and syncs until ctx is cancelled.
@@ -160,7 +160,7 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 	if text == "" {
 		return
 	}
-	// LLM and GitHub calls are slow; don't block the sync loop.
+	// LLM and forge calls are slow; don't block the sync loop.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()

@@ -1,0 +1,61 @@
+package forge
+
+import "testing"
+
+func TestParseRepo(t *testing.T) {
+	hostType := func(h string) string {
+		if h == "git.example.org" {
+			return GitLab
+		}
+		return ""
+	}
+	cases := map[string]string{
+		// GitHub
+		"https://www.github.com/zeldaret/oot":             "https://github.com/zeldaret/oot",
+		"https://github.com/ZeldaRet/OoT.git":             "https://github.com/zeldaret/oot",
+		"github.com/zeldaret/oot/tree/main/src":           "https://github.com/zeldaret/oot",
+		"http://github.com/zeldaret/oot?tab=readme#build": "https://github.com/zeldaret/oot",
+		"<https://github.com/zeldaret/oot>":               "https://github.com/zeldaret/oot",
+		// GitLab, including nested groups and /-/ sub-pages
+		"https://gitlab.com/group/sub/repo/-/tree/main": "https://gitlab.com/group/sub/repo",
+		"https://git.example.org/a/b/c.git":             "https://git.example.org/a/b/c",
+		// Gitea / Forgejo
+		"https://codeberg.org/owner/repo/src/branch/main/README.md": "https://codeberg.org/owner/repo",
+		"https://gitea.example.net/owner/repo/src/branch/main":      "https://gitea.example.net/owner/repo",
+		// SourceHut, cgit
+		"https://git.sr.ht/~user/repo/tree/main":      "https://git.sr.ht/~user/repo",
+		"https://git.zx2c4.com/wireguard-tools/tree/": "https://git.zx2c4.com/wireguard-tools",
+		"https://git.example.com:8443/Owner/Repo":     "https://git.example.com:8443/owner/repo",
+	}
+	for in, want := range cases {
+		r, err := ParseRepo(in, hostType)
+		if err != nil || r.URL() != want {
+			t.Errorf("ParseRepo(%q) = %q, %v; want %q", in, r.URL(), err, want)
+		}
+	}
+	for _, in := range []string{"https://github.com/onlyowner", "nope", "ftp://x.org/a/b", "https://matrix.to/#/@bot:x"} {
+		if r, err := ParseRepo(in, hostType); err == nil {
+			t.Errorf("ParseRepo(%q) should fail, got %q", in, r.URL())
+		}
+	}
+}
+
+func TestWebURLKeepsCase(t *testing.T) {
+	r, _ := ParseRepo("https://git.example.com/Owner/Repo", nil)
+	if r.WebURL() != "https://git.example.com/Owner/Repo" {
+		t.Errorf("got %q", r.WebURL())
+	}
+}
+
+func TestFindRepo(t *testing.T) {
+	for text, want := range map[string]string{
+		"bot add this repo to the list https://www.github.com/pret/pokeemerald , a gba decomp": "https://github.com/pret/pokeemerald",
+		"add codeberg.org/someone/game-recomp please":                                          "https://codeberg.org/someone/game-recomp",
+		"add https://git.example.net/me/port for linux":                                        "https://git.example.net/me/port",
+	} {
+		r, ok := FindRepo(text, nil)
+		if !ok || r.URL() != want {
+			t.Errorf("FindRepo(%q) = %q %v; want %q", text, r.URL(), ok, want)
+		}
+	}
+}
