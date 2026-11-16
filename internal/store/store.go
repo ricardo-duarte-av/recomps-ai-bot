@@ -152,6 +152,11 @@ func (s *Store) SearchGames(ctx context.Context, term string) ([]Entry, error) {
 	return s.query(ctx, `WHERE game LIKE '%' || $1 || '%' COLLATE NOCASE`, term)
 }
 
+// All returns every entry, one per repository, ordered by game.
+func (s *Store) All(ctx context.Context) ([]Entry, error) {
+	return s.query(ctx, "")
+}
+
 // Games returns all distinct game titles with their original systems.
 func (s *Store) Games(ctx context.Context) ([]string, error) {
 	rows, err := s.DB.Query(ctx, `SELECT DISTINCT game, original_system FROM recomps ORDER BY game`)

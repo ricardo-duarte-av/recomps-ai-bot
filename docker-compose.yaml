@@ -3,6 +3,10 @@ services:
     image: ghcr.io/ricardo-duarte-av/recomps-ai-bot:latest
     # build: .   # uncomment to build locally instead of pulling
     restart: unless-stopped
+    ports:
+      # host:container. The container port must match web.listen in config.yaml.
+      # Use "127.0.0.1:8080:8080" to only expose it to a reverse proxy on this host.
+      - "8080:8080"
     volumes:
       - ./config.yaml:/config/config.yaml:ro
       # Holds sqlite.db (the list, pending confirmations and the E2EE crypto store).

@@ -1,0 +1,105 @@
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --text: #1b1c1f;
+  --muted: #62656d;
+  --border: #e3e4e8;
+  --accent: #4f46e5;
+  --accent-soft: #eef0ff;
+  --row-hover: #f3f4f7;
+  --recomp: #0e7490;
+  --recomp-bg: #e0f5fa;
+  --decomp: #9333ea;
+  --decomp-bg: #f4e9fe;
+  --radius: 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --surface: #1a1b1f;
+    --text: #e7e8ec;
+    --muted: #9b9ea8;
+    --border: #2c2e34;
+    --accent: #8b85ff;
+    --accent-soft: #24234a;
+    --row-hover: #212328;
+    --recomp: #5fd0e8;
+    --recomp-bg: #11343d;
+    --decomp: #c99bff;
+    --decomp-bg: #2f1f45;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+
+.top { background: var(--surface); border-bottom: 1px solid var(--border); padding: 28px 0 20px; }
+h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
+.sub { margin: 4px 0 16px; color: var(--muted); }
+.search input {
+  width: 100%; font: inherit; font-size: 1.05rem; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text);
+}
+
+input, select { font: inherit; color: var(--text); }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 10px; color: var(--muted); font-size: 0.9rem; }
+.bar button {
+  font: inherit; font-size: 0.85rem; padding: 5px 10px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text);
+}
+
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 12px; vertical-align: top; }
+thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.heads th { padding-bottom: 4px; }
+.heads button {
+  all: unset; cursor: pointer; font-weight: 600; font-size: 0.82rem;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap;
+}
+.heads button::after { content: ""; display: inline-block; width: 1em; }
+.heads button[aria-sort="ascending"]::after { content: " ▲"; }
+.heads button[aria-sort="descending"]::after { content: " ▼"; }
+.heads button[aria-sort] { color: var(--text); }
+.filters th { padding-top: 0; border-bottom: 1px solid var(--border); }
+.filters input, .filters select {
+  width: 100%; min-width: 7rem; padding: 6px 8px; font-size: 0.88rem; font-weight: 400;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+}
+
+tbody tr { border-top: 1px solid var(--border); }
+tbody tr:first-child { border-top: 0; }
+tbody tr:hover { background: var(--row-hover); }
+td.game { font-weight: 600; }
+td.system { color: var(--muted); white-space: nowrap; }
+td.url a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+td.url a:hover { text-decoration: underline; }
+
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.tag.recomp { color: var(--recomp); background: var(--recomp-bg); }
+.tag.decomp { color: var(--decomp); background: var(--decomp-bg); }
+.os { display: inline-block; margin: 0 4px 4px 0; padding: 1px 8px; border-radius: 6px; font-size: 0.82rem; background: var(--accent-soft); white-space: nowrap; }
+
+.empty { text-align: center; color: var(--muted); padding: 32px 0; }
+mark { background: #fde68a; color: inherit; border-radius: 2px; }
+@media (prefers-color-scheme: dark) { mark { background: #6b5513; } }
+
+/* Phones: rows become cards, filters stack. */
+@media (max-width: 720px) {
+  .heads { display: none; }
+  table, thead, tbody, tr, th, td { display: block; }
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
+  .filters th { padding: 0; border: 0; }
+  .filters th:last-child { grid-column: 1 / -1; }
+  thead th { position: static; }
+  tbody tr { padding: 10px 12px; }
+  td { padding: 2px 0; }
+  td.system { white-space: normal; }
+}

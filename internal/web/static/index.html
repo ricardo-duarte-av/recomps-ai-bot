@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}}</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>{{.Title}}</h1>
+    <p class="sub">Game recompilations and decompilations, and where they run.</p>
+    <div class="search">
+      <input id="q" type="search" placeholder="Search everything…" aria-label="Search all columns" autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="bar">
+    <span id="count" aria-live="polite">Loading…</span>
+    <button id="clear" type="button" hidden>Clear filters</button>
+  </div>
+
+  <div class="table-wrap">
+    <table id="t">
+      <thead>
+        <tr class="heads">
+          <th><button type="button" data-sort="game">Game</button></th>
+          <th><button type="button" data-sort="system">Original system</button></th>
+          <th><button type="button" data-sort="kind">Type</button></th>
+          <th><button type="button" data-sort="oses">Supported OSes</button></th>
+          <th><button type="button" data-sort="url">URL</button></th>
+        </tr>
+        <tr class="filters">
+          <th><input data-filter="game" type="search" placeholder="Game…" aria-label="Filter by game" list="dl-game" autocomplete="off"></th>
+          <th><input data-filter="system" type="search" placeholder="System…" aria-label="Filter by original system" list="dl-system" autocomplete="off"></th>
+          <th>
+            <select data-filter="kind" aria-label="Filter by type">
+              <option value="">All types</option>
+              <option value="recomp">Recomp</option>
+              <option value="decomp">Decomp</option>
+            </select>
+          </th>
+          <th><input data-filter="oses" type="search" placeholder="OS…" aria-label="Filter by supported OS" list="dl-oses" autocomplete="off"></th>
+          <th><input data-filter="url" type="search" placeholder="URL…" aria-label="Filter by URL" autocomplete="off"></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p id="empty" class="empty" hidden>Nothing matches these filters.</p>
+
+  <datalist id="dl-game"></datalist>
+  <datalist id="dl-system"></datalist>
+  <datalist id="dl-oses"></datalist>
+</main>
+</body>
+</html>

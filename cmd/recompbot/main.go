@@ -16,6 +16,7 @@ import (
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/web"
 )
 
 func main() {
@@ -46,6 +47,20 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if cfg.Web.IsEnabled() {
+		srv, err := web.New(st, log.With().Str("component", "web").Logger(), cfg.Web.Title)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to set up web server")
+		}
+		go func() {
+			if err := srv.Run(ctx, cfg.Web.Listen); err != nil {
+				log.Error().Err(err).Msg("Web server failed")
+				stop()
+			}
+		}()
+	}
+
 	if err := b.Run(ctx); err != nil {
 		log.Error().Err(err).Msg("Bot stopped with error")
 		os.Exit(1)

@@ -13,5 +13,6 @@ COPY --from=build /out/recompbot /usr/local/bin/recompbot
 USER recompbot
 WORKDIR /data
 VOLUME ["/data"]
+EXPOSE 8080
 ENTRYPOINT ["recompbot"]
 CMD ["-config", "/config/config.yaml"]

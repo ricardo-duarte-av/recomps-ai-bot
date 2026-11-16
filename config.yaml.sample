@@ -47,3 +47,11 @@ forges:
 
 database:
   path: /data/sqlite.db
+
+web:
+  # Read-only, searchable page listing everything in the database.
+  enabled: true
+  # Address and port to listen on. Keep 0.0.0.0 inside Docker; change the port
+  # here and in docker-compose.yaml together.
+  listen: "0.0.0.0:8080"
+  title: "Recomps & Decomps"

@@ -31,6 +31,17 @@ with `OK` and `Cancel` reactions. Nothing is written until **a moderator** react
 
 Each supported OS is stored as its own row. OS names are normalized to `windows, linux, macos, android, ios, switch, web, freebsd` — e.g. Steam Deck/Fedora/Ubuntu/Debian/Arch → `linux`, OSX/Mac → `macos`.
 
+## Web page
+
+The bot also serves a read-only page (default `http://<host>:8080/`) listing every entry with its game, original system, type, supported OSes and URL. It reads the database on every load and refreshes itself every minute.
+
+- A global search box searches every column (case- and accent-insensitive, so `pokemon` finds `Pokémon`); each column also has its own filter.
+- Click a column header to sort. Filters and sort are kept in the URL, so a filtered view can be shared.
+- No external libraries or CDNs: about 15 KB of HTML, CSS and JS, embedded in the binary. Light and dark mode follow the system setting.
+- The JSON is at `/api/recomps`; `/healthz` returns `ok`.
+
+Configure it under `web:` in `config.yaml` (`listen` address/port, `title`, or `enabled: false`), and keep the port in `docker-compose.yaml` in sync.
+
 ## Running with Docker Compose
 
 ```sh

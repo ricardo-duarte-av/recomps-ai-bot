@@ -15,7 +15,19 @@ type Config struct {
 	GitHub   GitHub   `yaml:"github"`
 	Forges   Forges   `yaml:"forges"`
 	Database Database `yaml:"database"`
+	Web      Web      `yaml:"web"`
 }
+
+// Web configures the public read-only list page.
+type Web struct {
+	// Enabled defaults to true when unset.
+	Enabled *bool  `yaml:"enabled"`
+	Listen  string `yaml:"listen"`
+	Title   string `yaml:"title"`
+}
+
+// IsEnabled reports whether the web page should be served.
+func (w Web) IsEnabled() bool { return w.Enabled == nil || *w.Enabled }
 
 type Matrix struct {
 	Homeserver     string   `yaml:"homeserver"`
@@ -75,6 +87,12 @@ func Load(path string) (*Config, error) {
 	}
 	if c.OpenAI.Model == "" {
 		c.OpenAI.Model = "gpt-5-mini"
+	}
+	if c.Web.Listen == "" {
+		c.Web.Listen = "0.0.0.0:8080"
+	}
+	if c.Web.Title == "" {
+		c.Web.Title = "Recomps & Decomps"
 	}
 	if c.Database.Path == "" {
 		c.Database.Path = "/data/sqlite.db"
