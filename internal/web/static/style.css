@@ -35,7 +35,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.45; }
-.wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+.wrap { max-width: 1800px; margin: 0 auto; padding: 0 16px; }
 
 .top { background: var(--surface); border-bottom: 1px solid var(--border); padding: 28px 0 20px; }
 h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
@@ -81,7 +81,7 @@ td.game { font-weight: 600; }
 td.system { color: var(--muted); white-space: nowrap; }
 td.url a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
 td.url a:hover { text-decoration: underline; }
-td.extra { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88rem; min-width: 14rem; }
+td.extra { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88rem; min-width: 80ch; max-width: 200ch; }
 td.extra a { color: var(--accent); }
 td.extra:empty { min-width: 0; }
 
@@ -104,6 +104,6 @@ mark { background: #fde68a; color: inherit; border-radius: 2px; }
   tbody tr { padding: 10px 12px; }
   td { padding: 2px 0; }
   td.system { white-space: normal; }
-  td.extra { min-width: 0; }
+  td.extra { min-width: 0; max-width: none; }
   td.extra:not(:empty) { margin-top: 6px; }
 }
