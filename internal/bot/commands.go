@@ -24,10 +24,15 @@ const (
 const helpText = "I keep a list of game recomps and decomps. Try:\n\n" +
 	"- `is there any recomp for Pokemon Emerald?`\n" +
 	"- `add this repo to the list https://github.com/owner/repo` (moderators)\n" +
-	"- `remove repo https://github.com/owner/repo from the list` (moderators)"
+	"- `remove repo https://github.com/owner/repo from the list` (moderators)\n" +
+	"- `add extra https://github.com/owner/repo` followed by a ``` code block with notes or links (moderators; `remove extra <repo>` clears it)"
 
 func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) {
 	log := zerolog.Ctx(ctx)
+	if cmd, ok := parseExtraCommand(text); ok {
+		b.handleExtra(ctx, evt, cmd)
+		return
+	}
 	known, err := b.store.Games(ctx)
 	if err != nil {
 		log.Err(err).Msg("Failed to list games")
@@ -253,8 +258,12 @@ func (b *Bot) handleRepoQuery(ctx context.Context, evt *event.Event, repo forge.
 		b.reply(ctx, evt, msg)
 		return
 	}
-	b.reply(ctx, evt, fmt.Sprintf("Yes, %s is in the list: %s of **%s** from %s, for %s.",
-		existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes))))
+	msg := fmt.Sprintf("Yes, %s is in the list: %s of **%s** from %s, for %s.",
+		existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes)))
+	if existing.Extra != "" {
+		msg += formatExtra(existing.Extra)
+	}
+	b.reply(ctx, evt, msg)
 }
 
 // maxListed is how many repositories one reply may list with links; beyond that the

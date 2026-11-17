@@ -33,6 +33,7 @@ type Row struct {
 	Kind           string   `json:"kind"`
 	OSes           []string `json:"oses"`
 	URL            string   `json:"url"`
+	Extra          string   `json:"extra,omitempty"`
 }
 
 type Server struct {
@@ -105,7 +106,7 @@ func (s *Server) serveRecomps(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]Row, 0, len(entries))
 	for _, e := range entries {
-		row := Row{Game: e.Game, OriginalSystem: e.OriginalSystem, Kind: e.Kind, URL: e.RepoURL}
+		row := Row{Game: e.Game, OriginalSystem: e.OriginalSystem, Kind: e.Kind, URL: e.RepoURL, Extra: e.Extra}
 		for _, os := range oses.All { // canonical order
 			for _, have := range e.OSes {
 				if have == os {

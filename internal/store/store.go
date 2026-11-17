@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS recomps (
 );
 CREATE INDEX IF NOT EXISTS recomps_game_idx ON recomps (game);
 
+-- Optional free-form notes per repository (e.g. links to files it needs). Kept apart
+-- from recomps, which has one row per target platform.
+CREATE TABLE IF NOT EXISTS recomp_extras (
+	repo_url   TEXT PRIMARY KEY,
+	text       TEXT NOT NULL,
+	updated_by TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+
 -- Repos found by link detection that should not be suggested (again) for a while.
 CREATE TABLE IF NOT EXISTS seen_repos (
 	repo_url   TEXT PRIMARY KEY,
@@ -55,6 +64,8 @@ type Entry struct {
 	OriginalSystem string   `json:"original_system"`
 	Kind           string   `json:"kind"`
 	OSes           []string `json:"oses"`
+	// Extra is optional free-form text (e.g. links to files the recomp needs).
+	Extra string `json:"extra,omitempty"`
 	// Detected marks an add prompt raised by link detection rather than a moderator.
 	Detected bool `json:"detected,omitempty"`
 }
@@ -118,7 +129,8 @@ func (s *Store) Remove(ctx context.Context, repoURL string, oses []string) (int6
 				return err
 			}
 			total, _ = res.RowsAffected()
-			return nil
+			_, err = s.DB.Exec(ctx, `DELETE FROM recomp_extras WHERE repo_url = $1`, repoURL)
+			return err
 		}
 		for _, os := range oses {
 			res, err := s.DB.Exec(ctx, `DELETE FROM recomps WHERE repo_url = $1 AND os = $2`, repoURL, os)
@@ -128,9 +140,27 @@ func (s *Store) Remove(ctx context.Context, repoURL string, oses []string) (int6
 			n, _ := res.RowsAffected()
 			total += n
 		}
-		return nil
+		// Drop the extra text once the repo has no platforms left.
+		_, err := s.DB.Exec(ctx, `
+			DELETE FROM recomp_extras WHERE repo_url = $1
+			AND NOT EXISTS (SELECT 1 FROM recomps WHERE repo_url = $1)`, repoURL)
+		return err
 	})
 	return total, err
+}
+
+// SetExtra stores the extra text for repoURL; an empty text clears it.
+func (s *Store) SetExtra(ctx context.Context, repoURL, text, by string) error {
+	if text == "" {
+		_, err := s.DB.Exec(ctx, `DELETE FROM recomp_extras WHERE repo_url = $1`, repoURL)
+		return err
+	}
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO recomp_extras (repo_url, text, updated_by, updated_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (repo_url) DO UPDATE SET
+			text = excluded.text, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+		repoURL, text, by, time.Now().Unix())
+	return err
 }
 
 // GetByRepo returns the entry stored for repoURL, or nil if none.
@@ -187,7 +217,9 @@ func (s *Store) Games(ctx context.Context) ([]string, error) {
 // query loads rows matching where and groups them into one Entry per repo.
 func (s *Store) query(ctx context.Context, where string, args ...any) ([]Entry, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT repo_url, game, original_system, kind, os FROM recomps `+where+`
+		SELECT repo_url, game, original_system, kind, os,
+			COALESCE((SELECT text FROM recomp_extras x WHERE x.repo_url = recomps.repo_url), '')
+		FROM recomps `+where+`
 		ORDER BY game, repo_url, id`, args...)
 	if err != nil {
 		return nil, err
@@ -198,7 +230,7 @@ func (s *Store) query(ctx context.Context, where string, args ...any) ([]Entry, 
 	for rows.Next() {
 		var e Entry
 		var os string
-		if err := rows.Scan(&e.RepoURL, &e.Game, &e.OriginalSystem, &e.Kind, &os); err != nil {
+		if err := rows.Scan(&e.RepoURL, &e.Game, &e.OriginalSystem, &e.Kind, &os, &e.Extra); err != nil {
 			return nil, err
 		}
 		if i, ok := idx[e.RepoURL]; ok {

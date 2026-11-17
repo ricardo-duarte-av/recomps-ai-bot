@@ -45,3 +45,35 @@ func TestFormatTitles(t *testing.T) {
 		t.Errorf("unexpected summary:\n%s", out)
 	}
 }
+
+func TestParseExtraCommand(t *testing.T) {
+	cmd, ok := parseExtraCommand("add extra https://github.com/papand7/nightfire-recomp\n```\nFile1: https://file1.com\n```")
+	if !ok || cmd.clear || strings.TrimSpace(cmd.head) != "https://github.com/papand7/nightfire-recomp" {
+		t.Fatalf("got %+v, %v", cmd, ok)
+	}
+	if cmd, ok := parseExtraCommand("remove extra https://github.com/a/b"); !ok || !cmd.clear {
+		t.Fatalf("remove: got %+v, %v", cmd, ok)
+	}
+	for _, s := range []string{"add this repo https://github.com/a/b", "is there an extra recomp for Halo?", "add extras2 x"} {
+		if _, ok := parseExtraCommand(s); ok {
+			t.Errorf("%q should not be an extra command", s)
+		}
+	}
+}
+
+func TestExtractCodeBlock(t *testing.T) {
+	body := "@recompbot add extra https://github.com/papand7/nightfire-recomp\n```text\nThis is the text\nFile1: https://file1.com\n```\n"
+	got, ok := extractCodeBlock(body, "")
+	if want := "This is the text\nFile1: https://file1.com"; !ok || got != want {
+		t.Fatalf("got %q, %v", got, ok)
+	}
+	got, ok = extractCodeBlock("add extra x", `add extra x<pre><code class="language-text">a &amp; b
+c
+</code></pre>`)
+	if !ok || got != "a & b\nc" {
+		t.Fatalf("html: got %q, %v", got, ok)
+	}
+	if _, ok := extractCodeBlock("add extra x", "add extra x"); ok {
+		t.Fatal("expected no block")
+	}
+}

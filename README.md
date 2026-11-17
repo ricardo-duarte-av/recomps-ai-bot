@@ -21,6 +21,19 @@ Moderators (power level ≥ `moderator_level`, default 50):
 @recompbot remove repo https://github.com/owner/repo from the list
 ```
 
+Moderators can also attach free-form **extra info** to a repo that's already in the list, e.g. links to files it needs. Everything inside the code block is stored as-is (no AI involved) and shown in the web page's *Extra* column. Running it again replaces the text:
+
+````
+@recompbot add extra https://github.com/owner/repo
+```
+Needs the following files:
+File1: https://example.org/file1
+File2: https://example.org/file2
+```
+````
+
+`@recompbot remove extra https://github.com/owner/repo` clears it. Asking `is https://github.com/owner/repo in the list?` also shows it.
+
 Repositories can be on **any git host**: GitHub (and GitHub Enterprise), GitLab (gitlab.com or self-hosted, nested groups included), Gitea, Forgejo/Codeberg, SourceHut, cgit, and so on. Hosts the bot doesn't know are auto-detected; see `forges` in `config.yaml.sample` to set a host's type or an API token.
 
 For **add**, the bot fetches the README, asks the model which game, original system, recomp/decomp and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
@@ -39,7 +52,7 @@ Each supported target platform is stored as its own row. Targets can be operatin
 
 ## Web page
 
-The bot also serves a read-only page (default `http://<host>:8080/`) listing every entry with its game, original system, type, supported OSes and URL. It reads the database on every load and refreshes itself every minute.
+The bot also serves a read-only page (default `http://<host>:8080/`) listing every entry with its game, original system, type, supported OSes, URL and extra info (links in it are clickable). It reads the database on every load and refreshes itself every minute.
 
 - A global search box searches every column (case- and accent-insensitive, so `pokemon` finds `Pokémon`); each column also has its own filter.
 - Click a column header to sort. Filters and sort are kept in the URL, so a filtered view can be shared.

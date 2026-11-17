@@ -58,3 +58,46 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Remove = %d, %v", n, err)
 	}
 }
+
+func TestExtra(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	e := Entry{RepoURL: "https://github.com/papand7/nightfire-recomp", Game: "007: Nightfire",
+		OriginalSystem: "PlayStation 2", Kind: "recomp", OSes: []string{"windows", "linux"}}
+	if err := s.Add(ctx, e, "@mod:x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetExtra(ctx, e.RepoURL, "File1: https://file1.com\nFile2: https://file2.com", "@mod:x"); err != nil {
+		t.Fatal(err)
+	}
+	// Re-adding must keep the extra text.
+	if err := s.Add(ctx, e, "@mod:x"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetByRepo(ctx, e.RepoURL)
+	if got == nil || got.Extra != "File1: https://file1.com\nFile2: https://file2.com" || len(got.OSes) != 2 {
+		t.Fatalf("GetByRepo = %+v", got)
+	}
+	// Removing one platform keeps it; removing the last drops it.
+	s.Remove(ctx, e.RepoURL, []string{"linux"})
+	if got, _ := s.GetByRepo(ctx, e.RepoURL); got == nil || got.Extra == "" {
+		t.Fatalf("extra lost after partial remove: %+v", got)
+	}
+	s.Remove(ctx, e.RepoURL, []string{"windows"})
+	var n int
+	s.DB.QueryRow(ctx, `SELECT COUNT(*) FROM recomp_extras`).Scan(&n)
+	if n != 0 {
+		t.Fatal("extra should be deleted with the last platform")
+	}
+	// Clearing.
+	s.Add(ctx, e, "@mod:x")
+	s.SetExtra(ctx, e.RepoURL, "x", "@mod:x")
+	s.SetExtra(ctx, e.RepoURL, "", "@mod:x")
+	if got, _ := s.GetByRepo(ctx, e.RepoURL); got.Extra != "" {
+		t.Fatalf("not cleared: %q", got.Extra)
+	}
+}

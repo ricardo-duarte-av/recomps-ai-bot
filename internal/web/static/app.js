@@ -1,6 +1,6 @@
 "use strict";
 (() => {
-  const COLS = ["game", "system", "kind", "oses", "url"];
+  const COLS = ["game", "system", "kind", "oses", "url", "extra"];
   const REFRESH_MS = 60_000;
 
   const $ = (sel) => document.querySelector(sel);
@@ -25,6 +25,7 @@
   function prepare(data) {
     return data.map((r) => {
       r.oses = r.oses || [];
+      r.extra = r.extra || "";
       r._n = Object.fromEntries(COLS.map((c) => [c, norm(cellText(r, c))]));
       r._all = COLS.map((c) => r._n[c]).join(" \u0000 ");
       return r;
@@ -138,8 +139,26 @@
       url.append(a);
     } else url.append(r.url);
 
-    tr.append(game, system, kind, os, url);
+    const extra = td("extra");
+    renderExtra(extra, r.extra, words);
+
+    tr.append(game, system, kind, os, url, extra);
     return tr;
+  }
+
+  // Free text, line breaks kept; http(s) links become clickable. Never uses innerHTML.
+  const LINK_RE = /https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/gi;
+  function renderExtra(el, text, words) {
+    let last = 0;
+    for (const m of text.matchAll(LINK_RE)) {
+      highlight(el, text.slice(last, m.index), words);
+      const a = document.createElement("a");
+      a.href = m[0]; a.rel = "noopener noreferrer"; a.target = "_blank";
+      highlight(a, m[0], words);
+      el.append(a);
+      last = m.index + m[0].length;
+    }
+    highlight(el, text.slice(last), words);
   }
 
   function fillDatalist(id, values) {
