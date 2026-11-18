@@ -14,7 +14,6 @@ const (
 	reactWorking = "⏳"
 	reactDone    = "🆗"
 	reactFailed  = "❌"
-	reactKnown   = "Already got it..."
 )
 
 type workKey struct{}

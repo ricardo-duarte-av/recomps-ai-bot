@@ -42,7 +42,7 @@ For **add**, the bot fetches the README, asks the model which game, original sys
 
 with `OK` and `Cancel` reactions. Nothing is written until **a moderator** reacts with `OK` (✅/👍 also work); `Cancel` (❌/👎) discards it. **Remove** works the same way. Prompts expire after 24 hours.
 
-**Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with "Already got it..." instead). It then reads the README, and if the model says it's a game recomp/decomp, the bot replies:
+**Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with the repo, e.g. `github.com/owner/repo`, instead). It then reads the README, and if the model says it's a game recomp/decomp, the bot replies:
 
 > @room Detected a recomp not in the DB: https://github.com/owner/repo , **Game** from System, for Windows and Linux. Would you like to add it to the DB?
 

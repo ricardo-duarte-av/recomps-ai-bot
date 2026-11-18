@@ -35,10 +35,9 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 			Stringer("event", evt.ID).Logger().WithContext(ctx)
 
 		// ⏳ goes on the message only once a link actually needs checking, so
-		// dismissed links stay quiet. Links already in the list get a single
-		// "Already got it..." reaction instead.
+		// dismissed links stay quiet. Each link already in the list gets a reaction
+		// naming the repo (e.g. "github.com/owner/repo") instead.
 		var prog *progress
-		reactedKnown := false
 		defer func() {
 			if prog != nil {
 				prog.finish(ctx)
@@ -50,9 +49,8 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 				continue // someone else posted it at the same moment
 			}
 			needs, known := b.needsDetection(ctx, url)
-			if known && !reactedKnown {
-				reactedKnown = true
-				if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, reactKnown); err != nil {
+			if known {
+				if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, repo.Host+"/"+repo.Path); err != nil {
 					zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to add already-known reaction")
 				}
 			}
