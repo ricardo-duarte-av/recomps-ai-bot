@@ -16,6 +16,9 @@ matrix:
   # no link detection), e.g. other bots that post repository links.
   ignored_users: []
   #  - "@otherbot:example.org"
+  # Send answers as replies to the message they answer (true), or as regular
+  # messages in the room (false).
+  answer_with_reply: true
 
 openai:
   api_key: "sk-..."

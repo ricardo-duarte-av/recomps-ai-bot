@@ -2,7 +2,7 @@
 
 A Matrix bot that keeps a list of game **recomps** (static recompilations / native ports) and **decomps** (decompilation projects), and answers questions about it. It uses a lightweight OpenAI model (default `gpt-5-mini`) to understand messages and read repository READMEs. Works in encrypted and unencrypted rooms.
 
-The bot only reacts when it's **explicitly mentioned**, and only in the rooms listed in `config.yaml`.
+The bot only reacts when it's **explicitly mentioned**, and only in the rooms listed in `config.yaml`. It answers with Matrix replies to the message it's answering; set `matrix.answer_with_reply: false` to send regular messages instead.
 
 ## Usage
 

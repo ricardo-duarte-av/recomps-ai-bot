@@ -250,7 +250,8 @@ func (b *Bot) stripMention(body string) string {
 	return strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(out), ":,"))
 }
 
-// reply sends a markdown message as a reply to evt and returns its event ID.
+// reply sends a markdown message answering evt (as a Matrix reply unless
+// matrix.answer_with_reply is false) and returns its event ID.
 func (b *Bot) reply(ctx context.Context, evt *event.Event, markdown string) id.EventID {
 	return b.send(ctx, evt, markdown, false)
 }
@@ -258,7 +259,9 @@ func (b *Bot) reply(ctx context.Context, evt *event.Event, markdown string) id.E
 // send is reply with an optional @room mention.
 func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, mentionRoom bool) id.EventID {
 	content := format.RenderMarkdown(markdown, true, false)
-	content.SetReply(evt)
+	if b.cfg.Matrix.ShouldReply() {
+		content.SetReply(evt)
+	}
 	if mentionRoom {
 		if content.Mentions == nil {
 			content.Mentions = &event.Mentions{}

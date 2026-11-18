@@ -56,7 +56,12 @@ type Matrix struct {
 	// IgnoredUsers lists Matrix user IDs (e.g. other bots) whose messages and
 	// reactions are ignored entirely: no commands, no link detection.
 	IgnoredUsers []string `yaml:"ignored_users"`
+	// AnswerWithReply sends the bot's answers as Matrix replies to the message they
+	// answer (defaults to true). When false they're sent as regular messages.
+	AnswerWithReply *bool `yaml:"answer_with_reply"`
 }
+
+func (m Matrix) ShouldReply() bool { return m.AnswerWithReply == nil || *m.AnswerWithReply }
 
 type OpenAI struct {
 	APIKey  string `yaml:"api_key"`
