@@ -35,6 +35,7 @@ type Bot struct {
 	userID      id.UserID
 	displayName string
 	rooms       map[id.RoomID]bool
+	ignored     map[id.UserID]bool
 	startTime   time.Time
 
 	createEvents sync.Map // id.RoomID -> *event.Event (m.room.create never changes)
@@ -42,7 +43,11 @@ type Bot struct {
 }
 
 func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {
-	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, rooms: map[id.RoomID]bool{}}
+	ignored := map[id.UserID]bool{}
+	for _, u := range cfg.Matrix.IgnoredUsers {
+		ignored[id.UserID(u)] = true
+	}
+	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, rooms: map[id.RoomID]bool{}, ignored: ignored}
 }
 
 // Run logs in, sets up encryption, joins the configured rooms and syncs until ctx is cancelled.
@@ -143,7 +148,7 @@ func (b *Bot) onMember(ctx context.Context, evt *event.Event) {
 }
 
 func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
-	if evt.Sender == b.userID || !b.rooms[evt.RoomID] {
+	if evt.Sender == b.userID || b.ignored[evt.Sender] || !b.rooms[evt.RoomID] {
 		return
 	}
 	if time.UnixMilli(evt.Timestamp).Before(b.startTime) {

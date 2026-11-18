@@ -12,6 +12,10 @@ matrix:
     - "#recomps:example.org"
   # Minimum power level to add/remove entries and confirm with reactions.
   moderator_level: 50
+  # Users whose messages and reactions the bot ignores completely (no commands,
+  # no link detection), e.g. other bots that post repository links.
+  ignored_users: []
+  #  - "@otherbot:example.org"
 
 openai:
   api_key: "sk-..."

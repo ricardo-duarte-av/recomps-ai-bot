@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -52,6 +53,9 @@ type Matrix struct {
 	PickleKey      string   `yaml:"pickle_key"`
 	AllowedRooms   []string `yaml:"allowed_rooms"`
 	ModeratorLevel int      `yaml:"moderator_level"`
+	// IgnoredUsers lists Matrix user IDs (e.g. other bots) whose messages and
+	// reactions are ignored entirely: no commands, no link detection.
+	IgnoredUsers []string `yaml:"ignored_users"`
 }
 
 type OpenAI struct {
@@ -129,6 +133,11 @@ func Load(path string) (*Config, error) {
 	req(c.OpenAI.APIKey, "openai.api_key")
 	if len(c.Matrix.AllowedRooms) == 0 {
 		errs = append(errs, errors.New("matrix.allowed_rooms must list at least one room"))
+	}
+	for i, u := range c.Matrix.IgnoredUsers {
+		if !strings.HasPrefix(u, "@") || !strings.Contains(u, ":") {
+			errs = append(errs, fmt.Errorf("matrix.ignored_users[%d] %q must be a full user ID like @bot:example.org", i, u))
+		}
 	}
 	for i, h := range c.Forges.Hosts {
 		if h.Host == "" {

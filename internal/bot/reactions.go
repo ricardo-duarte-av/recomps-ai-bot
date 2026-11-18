@@ -27,7 +27,7 @@ func classifyReaction(key string) (confirm, cancel bool) {
 
 func (b *Bot) onReaction(ctx context.Context, evt *event.Event) {
 	// Reactions are not filtered by timestamp: a moderator may confirm while the bot was offline.
-	if evt.Sender == b.userID || !b.rooms[evt.RoomID] {
+	if evt.Sender == b.userID || b.ignored[evt.Sender] || !b.rooms[evt.RoomID] {
 		return
 	}
 	rel := evt.Content.AsReaction().RelatesTo
