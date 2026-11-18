@@ -105,6 +105,9 @@ func pagesToRepo(host string, segs []string) (string, []string, bool) {
 func ParseRepo(raw string, hostType func(host string) string) (Repo, error) {
 	raw = strings.TrimSpace(raw)
 	raw = strings.Trim(raw, "<>()[],.;\"'")
+	// Markdown bodies escape punctuation (Reddit writes gravityrush\_pc); a backslash
+	// is never part of a real URL, so drop it rather than detect a bogus repo.
+	raw = strings.ReplaceAll(raw, "\\", "")
 	if !strings.Contains(raw, "://") {
 		raw = "https://" + raw
 	}

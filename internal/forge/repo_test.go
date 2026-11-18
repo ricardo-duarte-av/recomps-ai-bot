@@ -11,11 +11,12 @@ func TestParseRepo(t *testing.T) {
 	}
 	cases := map[string]string{
 		// GitHub
-		"https://www.github.com/zeldaret/oot":             "https://github.com/zeldaret/oot",
-		"https://github.com/ZeldaRet/OoT.git":             "https://github.com/zeldaret/oot",
-		"github.com/zeldaret/oot/tree/main/src":           "https://github.com/zeldaret/oot",
-		"http://github.com/zeldaret/oot?tab=readme#build": "https://github.com/zeldaret/oot",
-		"<https://github.com/zeldaret/oot>":               "https://github.com/zeldaret/oot",
+		"https://www.github.com/zeldaret/oot":                                  "https://github.com/zeldaret/oot",
+		"https://github.com/ZeldaRet/OoT.git":                                  "https://github.com/zeldaret/oot",
+		"github.com/zeldaret/oot/tree/main/src":                                "https://github.com/zeldaret/oot",
+		"http://github.com/zeldaret/oot?tab=readme#build":                      "https://github.com/zeldaret/oot",
+		"<https://github.com/zeldaret/oot>":                                    "https://github.com/zeldaret/oot",
+		`https://github.com/LucaPazienza/gravityrush\_pc/releases/tag/v0.1.15`: "https://github.com/lucapazienza/gravityrush_pc",
 		// GitLab, including nested groups and /-/ sub-pages
 		"https://gitlab.com/group/sub/repo/-/tree/main": "https://gitlab.com/group/sub/repo",
 		"https://git.example.org/a/b/c.git":             "https://git.example.org/a/b/c",
