@@ -59,7 +59,7 @@ const PendingTTL = 24 * time.Hour
 
 // DetectedPendingTTL is how long link-detection add prompts for a repo wait for an
 // answer, counted from the newest prompt for that repo in any room. Unanswered ones
-// are then treated as dismissed.
+// are then dropped, and the repo is suggested again the next time it's posted.
 const DetectedPendingTTL = 6 * time.Hour
 
 // Entry describes one repository (covering one or more OSes).

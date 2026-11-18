@@ -157,7 +157,7 @@ func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) 
 		prefix = "@room "
 	}
 	msg := fmt.Sprintf("%sDetected a %s not in the DB: %s , **%s** from %s, for %s. Would you like to add it to the DB?\n\n"+
-		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, it's dismissed.",
+		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, I'll drop it and ask again the next time it's posted.",
 		prefix, entry.Kind, entry.RepoURL, entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes), reactOK, reactCancel,
 		formatHours(store.DetectedPendingTTL))
 	b.prompt(ctx, evt, "add", entry, msg, b.cfg.Detect.ShouldMention())

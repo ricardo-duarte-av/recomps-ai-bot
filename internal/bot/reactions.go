@@ -127,9 +127,10 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 	}
 }
 
-// expireLoop dismisses link-detection prompts nobody answered in time, in every
-// room they were asked in. Prompts that expired while the bot was down are handled
-// on the first tick, once the initial sync has had time to run.
+// expireLoop closes link-detection prompts nobody answered in time, in every room
+// they were asked in. The repo isn't remembered, so the next time it's posted it's
+// suggested again. Prompts that expired while the bot was down are handled on the
+// first tick, once the initial sync has had time to run.
 func (b *Bot) expireLoop(ctx context.Context) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
@@ -149,18 +150,10 @@ func (b *Bot) expireDetected(ctx context.Context) {
 		b.log.Warn().Err(err).Msg("Failed to expire unanswered detection prompts")
 		return
 	}
-	dismissed := map[string]bool{}
 	for _, p := range expired {
-		url := p.Entry.RepoURL
-		if !dismissed[url] {
-			dismissed[url] = true
-			b.log.Info().Str("repo", url).Msg("Nobody answered the detection prompt, dismissing")
-			if err := b.store.MarkSeen(ctx, url, store.SeenDismissed); err != nil {
-				b.log.Err(err).Str("repo", url).Msg("Failed to remember dismissed repo")
-			}
-		}
+		b.log.Info().Str("repo", p.Entry.RepoURL).Str("room", p.RoomID).Msg("Nobody answered the detection prompt")
 		b.reply(ctx, &event.Event{ID: id.EventID(p.EventID), RoomID: id.RoomID(p.RoomID), Sender: b.userID},
-			fmt.Sprintf("Nobody answered within %s, so it's dismissed. I won't suggest %s again (a moderator can still add it explicitly).",
-				formatHours(store.DetectedPendingTTL), url))
+			fmt.Sprintf("Nobody answered within %s, so I'm dropping this. I'll ask again the next time %s is posted.",
+				formatHours(store.DetectedPendingTTL), p.Entry.RepoURL))
 	}
 }
