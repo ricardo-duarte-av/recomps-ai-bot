@@ -35,8 +35,10 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 			Stringer("event", evt.ID).Logger().WithContext(ctx)
 
 		// ⏳ goes on the message only once a link actually needs checking, so
-		// links to repos already in the list (or dismissed) stay quiet.
+		// dismissed links stay quiet. Links already in the list get a single
+		// "Already got it..." reaction instead.
 		var prog *progress
+		reactedKnown := false
 		defer func() {
 			if prog != nil {
 				prog.finish(ctx)
@@ -47,7 +49,14 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 			if _, busy := b.detecting.LoadOrStore(url, true); busy {
 				continue // someone else posted it at the same moment
 			}
-			if b.needsDetection(ctx, url) {
+			needs, known := b.needsDetection(ctx, url)
+			if known && !reactedKnown {
+				reactedKnown = true
+				if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, reactKnown); err != nil {
+					zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to add already-known reaction")
+				}
+			}
+			if needs {
 				if prog == nil {
 					ctx, prog = b.startWork(ctx, evt)
 				}
@@ -59,18 +68,22 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 }
 
 // needsDetection does the cheap checks: not in the list, not dismissed or recently
-// checked, and no add prompt already waiting.
-func (b *Bot) needsDetection(ctx context.Context, url string) bool {
-	if existing, err := b.store.GetByRepo(ctx, url); err != nil || existing != nil {
-		return false
+// checked, and no add prompt already waiting. known reports that the repo is already
+// in the list.
+func (b *Bot) needsDetection(ctx context.Context, url string) (needs, known bool) {
+	existing, err := b.store.GetByRepo(ctx, url)
+	if err != nil {
+		return false, false
+	} else if existing != nil {
+		return false, true
 	}
 	if skip, err := b.store.ShouldSkipDetection(ctx, url); err != nil || skip {
-		return false
+		return false, false
 	}
 	if pending, err := b.store.HasPendingAddForRepo(ctx, url); err != nil || pending {
-		return false
+		return false, false
 	}
-	return true
+	return true, false
 }
 
 func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo) {
