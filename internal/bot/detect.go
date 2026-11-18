@@ -3,10 +3,12 @@ package bot
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/oses"
@@ -45,43 +47,68 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 		}()
 		for _, repo := range repos {
 			url := repo.URL()
-			if _, busy := b.detecting.LoadOrStore(url, true); busy {
-				continue // someone else posted it at the same moment
-			}
-			needs, known := b.needsDetection(ctx, url)
-			if known {
-				if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, repo.Host+"/"+repo.Path); err != nil {
-					zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to add already-known reaction")
+			unlock := b.lockRepo(url)
+			rctx := zerolog.Ctx(ctx).With().Str("repo", url).Logger().WithContext(ctx)
+			state, entry := b.detectionState(rctx, url, evt.RoomID)
+			switch state {
+			case detectKnown:
+				if _, err := b.client.SendReaction(rctx, evt.RoomID, evt.ID, repo.Host+"/"+repo.Path); err != nil {
+					zerolog.Ctx(rctx).Warn().Err(err).Msg("Failed to add already-known reaction")
 				}
-			}
-			if needs {
+			case detectAskedElsewhere:
+				// Already classified for another room: ask here too, no README or AI needed.
+				zerolog.Ctx(rctx).Info().Msg("Suggesting repo already pending in another room")
+				b.suggest(rctx, evt, *entry)
+			case detectNew:
 				if prog == nil {
 					ctx, prog = b.startWork(ctx, evt)
+					rctx = zerolog.Ctx(ctx).With().Str("repo", url).Logger().WithContext(ctx)
 				}
-				b.detectRepo(zerolog.Ctx(ctx).With().Str("repo", url).Logger().WithContext(ctx), evt, repo)
+				b.detectRepo(rctx, evt, repo)
 			}
-			b.detecting.Delete(url)
+			unlock()
 		}
 	}()
 }
 
-// needsDetection does the cheap checks: not in the list, not dismissed or recently
-// checked, and no add prompt already waiting. known reports that the repo is already
-// in the list.
-func (b *Bot) needsDetection(ctx context.Context, url string) (needs, known bool) {
+type detectState int
+
+const (
+	detectSkip           detectState = iota // dismissed, recently checked, or already asked here
+	detectKnown                             // already in the list
+	detectAskedElsewhere                    // an add prompt for it is waiting in another room
+	detectNew                               // needs a README fetch and classification
+)
+
+// detectionState does the cheap checks for a link posted in room. For
+// detectAskedElsewhere it also returns the entry from the waiting prompt.
+func (b *Bot) detectionState(ctx context.Context, url string, room id.RoomID) (detectState, *store.Entry) {
 	existing, err := b.store.GetByRepo(ctx, url)
 	if err != nil {
-		return false, false
+		return detectSkip, nil
 	} else if existing != nil {
-		return false, true
+		return detectKnown, nil
+	}
+	pending, err := b.store.PendingDetectedAdds(ctx, url)
+	if err != nil {
+		return detectSkip, nil
+	}
+	for _, p := range pending {
+		if p.RoomID == room.String() {
+			return detectSkip, nil
+		}
+	}
+	if len(pending) > 0 {
+		return detectAskedElsewhere, &pending[0].Entry
 	}
 	if skip, err := b.store.ShouldSkipDetection(ctx, url); err != nil || skip {
-		return false, false
+		return detectSkip, nil
 	}
+	// A moderator's own add request is waiting.
 	if pending, err := b.store.HasPendingAddForRepo(ctx, url); err != nil || pending {
-		return false, false
+		return detectSkip, nil
 	}
-	return true, false
+	return detectNew, nil
 }
 
 func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo) {
@@ -119,13 +146,32 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 		RepoURL: url, Game: info.Game, OriginalSystem: info.OriginalSystem,
 		Kind: info.Kind, OSes: info.OSes, Detected: true,
 	}
+	log.Info().Interface("entry", entry).Msg("Suggesting detected repo")
+	b.suggest(ctx, evt, entry)
+}
+
+// suggest posts a link-detection add prompt in evt's room.
+func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) {
 	prefix := ""
 	if b.cfg.Detect.ShouldMention() {
 		prefix = "@room "
 	}
 	msg := fmt.Sprintf("%sDetected a %s not in the DB: %s , **%s** from %s, for %s. Would you like to add it to the DB?\n\n"+
-		"A moderator can react with **%s** to add it or **%s** to dismiss it.",
-		prefix, entry.Kind, entry.RepoURL, entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes), reactOK, reactCancel)
-	log.Info().Interface("entry", entry).Msg("Suggesting detected repo")
+		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, it's dismissed.",
+		prefix, entry.Kind, entry.RepoURL, entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes), reactOK, reactCancel,
+		formatHours(store.DetectedPendingTTL))
 	b.prompt(ctx, evt, "add", entry, msg, b.cfg.Detect.ShouldMention())
+}
+
+func formatHours(d time.Duration) string {
+	return fmt.Sprintf("%d hours", int(d.Hours()))
+}
+
+// lockRepo serializes link detection per repo, so the same link posted in several
+// rooms at once is classified once and then asked about in each room.
+func (b *Bot) lockRepo(url string) func() {
+	m, _ := b.detecting.LoadOrStore(url, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }

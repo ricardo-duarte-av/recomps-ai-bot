@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS pending_actions (
 // PendingTTL is how long a confirmation prompt stays valid.
 const PendingTTL = 24 * time.Hour
 
+// DetectedPendingTTL is how long link-detection add prompts for a repo wait for an
+// answer, counted from the newest prompt for that repo in any room. Unanswered ones
+// are then treated as dismissed.
+const DetectedPendingTTL = 6 * time.Hour
+
 // Entry describes one repository (covering one or more OSes).
 type Entry struct {
 	RepoURL        string   `json:"repo_url"`
@@ -353,4 +358,74 @@ func (s *Store) HasPendingAddForRepo(ctx context.Context, repoURL string) (bool,
 		WHERE action = 'add' AND json_extract(payload, '$.repo_url') = $1 AND created_at > $2`,
 		repoURL, time.Now().Add(-PendingTTL).Unix()).Scan(&n)
 	return n > 0, err
+}
+
+// detectedAddWhere selects link-detection add prompts.
+const detectedAddWhere = `action = 'add' AND json_extract(payload, '$.detected') = 1`
+
+func (s *Store) queryPending(ctx context.Context, where string, args ...any) ([]Pending, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT event_id, room_id, action, payload, requested_by, created_at
+		FROM pending_actions WHERE `+where+` ORDER BY created_at`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Pending
+	for rows.Next() {
+		var p Pending
+		var payload string
+		var created int64
+		if err := rows.Scan(&p.EventID, &p.RoomID, &p.Action, &payload, &p.RequestedBy, &created); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(payload), &p.Entry); err != nil {
+			return nil, err
+		}
+		p.CreatedAt = time.Unix(created, 0)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PendingDetectedAdds returns the link-detection add prompts for repoURL in all rooms.
+func (s *Store) PendingDetectedAdds(ctx context.Context, repoURL string) ([]Pending, error) {
+	return s.queryPending(ctx, detectedAddWhere+` AND json_extract(payload, '$.repo_url') = $1`, repoURL)
+}
+
+// TakePendingDetectedAdds atomically fetches and deletes the link-detection add
+// prompts for repoURL in all rooms, so an answer in one room closes all of them.
+func (s *Store) TakePendingDetectedAdds(ctx context.Context, repoURL string) ([]Pending, error) {
+	var out []Pending
+	err := s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		var err error
+		out, err = s.PendingDetectedAdds(ctx, repoURL)
+		if err != nil {
+			return err
+		}
+		_, err = s.DB.Exec(ctx, `DELETE FROM pending_actions WHERE `+detectedAddWhere+
+			` AND json_extract(payload, '$.repo_url') = $1`, repoURL)
+		return err
+	})
+	return out, err
+}
+
+// TakeExpiredDetectedAdds atomically fetches and deletes the link-detection add
+// prompts of every repo whose newest prompt is older than DetectedPendingTTL.
+func (s *Store) TakeExpiredDetectedAdds(ctx context.Context) ([]Pending, error) {
+	where := detectedAddWhere + ` AND json_extract(payload, '$.repo_url') IN (
+		SELECT json_extract(payload, '$.repo_url') FROM pending_actions WHERE ` + detectedAddWhere + `
+		GROUP BY 1 HAVING MAX(created_at) <= $1)`
+	cutoff := time.Now().Add(-DetectedPendingTTL).Unix()
+	var out []Pending
+	err := s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		var err error
+		out, err = s.queryPending(ctx, where, cutoff)
+		if err != nil {
+			return err
+		}
+		_, err = s.DB.Exec(ctx, `DELETE FROM pending_actions WHERE `+where, cutoff)
+		return err
+	})
+	return out, err
 }

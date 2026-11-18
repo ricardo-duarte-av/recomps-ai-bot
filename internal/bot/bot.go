@@ -39,7 +39,7 @@ type Bot struct {
 	startTime   time.Time
 
 	createEvents sync.Map // id.RoomID -> *event.Event (m.room.create never changes)
-	detecting    sync.Map // repo URL -> true while link detection is checking it
+	detecting    sync.Map // repo URL -> *sync.Mutex held while link detection checks it
 }
 
 func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {
@@ -100,6 +100,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	syncer.OnEventType(event.StateMember, b.onMember)
 
 	go b.purgeLoop(ctx)
+	go b.expireLoop(ctx)
 
 	b.log.Info().Int("rooms", len(b.rooms)).Msg("Starting sync")
 	err = client.SyncWithContext(ctx)

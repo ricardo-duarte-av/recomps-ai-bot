@@ -69,12 +69,29 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 	// Reply to the prompt message rather than the reaction.
 	target := &event.Event{ID: promptID, RoomID: evt.RoomID, Sender: b.userID}
 	e := p.Entry
+
+	// The same detected repo may have been suggested in other rooms too: the
+	// answer here closes those prompts as well (and so does a moderator's own add).
+	var others []store.Pending
+	if p.Action == "add" && (e.Detected || confirm) {
+		if others, err = b.store.TakePendingDetectedAdds(ctx, e.RepoURL); err != nil {
+			log.Err(err).Msg("Failed to take the repo's prompts in other rooms")
+		}
+	}
+	tellOthers := func(msg string) {
+		for _, o := range others {
+			b.reply(ctx, &event.Event{ID: id.EventID(o.EventID), RoomID: id.RoomID(o.RoomID), Sender: b.userID}, msg)
+		}
+	}
+
 	if !confirm {
 		if p.Action == "add" && e.Detected {
 			if err := b.store.MarkSeen(ctx, e.RepoURL, store.SeenDismissed); err != nil {
 				log.Err(err).Msg("Failed to remember dismissed repo")
 			}
-			b.reply(ctx, target, fmt.Sprintf("Dismissed by %s. I won't suggest %s again (a moderator can still add it explicitly).", mention(evt.Sender), e.RepoURL))
+			msg := fmt.Sprintf("I won't suggest %s again (a moderator can still add it explicitly).", e.RepoURL)
+			b.reply(ctx, target, fmt.Sprintf("Dismissed by %s. %s", mention(evt.Sender), msg))
+			tellOthers(fmt.Sprintf("Dismissed by %s in another room. %s", mention(evt.Sender), msg))
 			return
 		}
 		b.reply(ctx, target, fmt.Sprintf("Cancelled by %s.", mention(evt.Sender)))
@@ -93,8 +110,10 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			return
 		}
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Msg("Added entry")
-		b.reply(ctx, target, fmt.Sprintf("Added %s (%s of **%s** from %s) for %s. Confirmed by %s.",
-			e.RepoURL, e.Kind, e.Game, e.OriginalSystem, oses.JoinDisplay(e.OSes), mention(evt.Sender)))
+		added := fmt.Sprintf("Added %s (%s of **%s** from %s) for %s. Confirmed by %s",
+			e.RepoURL, e.Kind, e.Game, e.OriginalSystem, oses.JoinDisplay(e.OSes), mention(evt.Sender))
+		b.reply(ctx, target, added+".")
+		tellOthers(added + " in another room.")
 	case "remove":
 		n, err := b.store.Remove(ctx, e.RepoURL, e.OSes)
 		if err != nil {
@@ -105,5 +124,43 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Int64("rows", n).Msg("Removed entry")
 		b.reply(ctx, target, fmt.Sprintf("Removed %s from %s for **%s**. Confirmed by %s.",
 			e.RepoURL, oses.JoinDisplay(e.OSes), e.Game, mention(evt.Sender)))
+	}
+}
+
+// expireLoop dismisses link-detection prompts nobody answered in time, in every
+// room they were asked in. Prompts that expired while the bot was down are handled
+// on the first tick, once the initial sync has had time to run.
+func (b *Bot) expireLoop(ctx context.Context) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			b.expireDetected(ctx)
+		}
+	}
+}
+
+func (b *Bot) expireDetected(ctx context.Context) {
+	expired, err := b.store.TakeExpiredDetectedAdds(ctx)
+	if err != nil {
+		b.log.Warn().Err(err).Msg("Failed to expire unanswered detection prompts")
+		return
+	}
+	dismissed := map[string]bool{}
+	for _, p := range expired {
+		url := p.Entry.RepoURL
+		if !dismissed[url] {
+			dismissed[url] = true
+			b.log.Info().Str("repo", url).Msg("Nobody answered the detection prompt, dismissing")
+			if err := b.store.MarkSeen(ctx, url, store.SeenDismissed); err != nil {
+				b.log.Err(err).Str("repo", url).Msg("Failed to remember dismissed repo")
+			}
+		}
+		b.reply(ctx, &event.Event{ID: id.EventID(p.EventID), RoomID: id.RoomID(p.RoomID), Sender: b.userID},
+			fmt.Sprintf("Nobody answered within %s, so it's dismissed. I won't suggest %s again (a moderator can still add it explicitly).",
+				formatHours(store.DetectedPendingTTL), url))
 	}
 }
