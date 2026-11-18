@@ -128,8 +128,8 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 }
 
 // expireLoop closes link-detection prompts nobody answered in time, in every room
-// they were asked in. The repo isn't remembered, so the next time it's posted it's
-// suggested again. Prompts that expired while the bot was down are handled on the
+// they were asked in. The repo isn't dismissed, so the next time it's posted it's
+// suggested again, reusing the cached classification. Prompts that expired while the bot was down are handled on the
 // first tick, once the initial sync has had time to run.
 func (b *Bot) expireLoop(ctx context.Context) {
 	t := time.NewTicker(time.Minute)
@@ -151,6 +151,9 @@ func (b *Bot) expireDetected(ctx context.Context) {
 		return
 	}
 	for _, p := range expired {
+		if err := b.store.CacheDetected(ctx, p.Entry); err != nil {
+			b.log.Warn().Err(err).Str("repo", p.Entry.RepoURL).Msg("Failed to cache detected repo")
+		}
 		b.log.Info().Str("repo", p.Entry.RepoURL).Str("room", p.RoomID).Msg("Nobody answered the detection prompt")
 		b.reply(ctx, &event.Event{ID: id.EventID(p.EventID), RoomID: id.RoomID(p.RoomID), Sender: b.userID},
 			fmt.Sprintf("Nobody answered within %s, so I'm dropping this. I'll ask again the next time %s is posted.",

@@ -56,8 +56,8 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 					zerolog.Ctx(rctx).Warn().Err(err).Msg("Failed to add already-known reaction")
 				}
 			case detectAskedElsewhere:
-				// Already classified for another room: ask here too, no README or AI needed.
-				zerolog.Ctx(rctx).Info().Msg("Suggesting repo already pending in another room")
+				// Already classified: ask here, no README or AI needed.
+				zerolog.Ctx(rctx).Info().Msg("Suggesting already classified repo")
 				b.suggest(rctx, evt, *entry)
 			case detectNew:
 				if prog == nil {
@@ -76,12 +76,12 @@ type detectState int
 const (
 	detectSkip           detectState = iota // dismissed, recently checked, or already asked here
 	detectKnown                             // already in the list
-	detectAskedElsewhere                    // an add prompt for it is waiting in another room
+	detectAskedElsewhere                    // already classified: waiting in another room, or asked before and unanswered
 	detectNew                               // needs a README fetch and classification
 )
 
 // detectionState does the cheap checks for a link posted in room. For
-// detectAskedElsewhere it also returns the entry from the waiting prompt.
+// detectAskedElsewhere it also returns the already classified entry.
 func (b *Bot) detectionState(ctx context.Context, url string, room id.RoomID) (detectState, *store.Entry) {
 	existing, err := b.store.GetByRepo(ctx, url)
 	if err != nil {
@@ -103,6 +103,11 @@ func (b *Bot) detectionState(ctx context.Context, url string, room id.RoomID) (d
 	}
 	if skip, err := b.store.ShouldSkipDetection(ctx, url); err != nil || skip {
 		return detectSkip, nil
+	}
+	if cached, err := b.store.GetCachedDetected(ctx, url); err != nil {
+		return detectSkip, nil
+	} else if cached != nil {
+		return detectAskedElsewhere, cached
 	}
 	// A moderator's own add request is waiting.
 	if pending, err := b.store.HasPendingAddForRepo(ctx, url); err != nil || pending {

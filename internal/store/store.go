@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS seen_repos (
 	checked_at INTEGER NOT NULL
 );
 
+-- Classifications of detected repos whose prompts went unanswered, reused when
+-- the repo is posted again so it's suggested without another README fetch/AI call.
+CREATE TABLE IF NOT EXISTS detected_cache (
+	repo_url   TEXT PRIMARY KEY,
+	payload    TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pending_actions (
 	event_id     TEXT PRIMARY KEY,
 	room_id      TEXT NOT NULL,
@@ -428,4 +436,33 @@ func (s *Store) TakeExpiredDetectedAdds(ctx context.Context) ([]Pending, error) 
 		return err
 	})
 	return out, err
+}
+
+// CacheDetected remembers the classification of a detected repo.
+func (s *Store) CacheDetected(ctx context.Context, e Entry) error {
+	payload, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(ctx, `
+		INSERT INTO detected_cache (repo_url, payload, created_at) VALUES ($1, $2, $3)
+		ON CONFLICT (repo_url) DO UPDATE SET payload = excluded.payload, created_at = excluded.created_at`,
+		e.RepoURL, string(payload), time.Now().Unix())
+	return err
+}
+
+// GetCachedDetected returns the remembered classification of repoURL, or nil.
+func (s *Store) GetCachedDetected(ctx context.Context, repoURL string) (*Entry, error) {
+	var payload string
+	err := s.DB.QueryRow(ctx, `SELECT payload FROM detected_cache WHERE repo_url = $1`, repoURL).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var e Entry
+	if err := json.Unmarshal([]byte(payload), &e); err != nil {
+		return nil, err
+	}
+	return &e, nil
 }

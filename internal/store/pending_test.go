@@ -70,4 +70,14 @@ func TestDetectedPendingAcrossRooms(t *testing.T) {
 	if ok, _ := s.HasPending(ctx, "$m1"); !ok {
 		t.Fatal("manual add prompt shouldn't expire with detection prompts")
 	}
+
+	if c, err := s.GetCachedDetected(ctx, b.RepoURL); err != nil || c != nil {
+		t.Fatalf("GetCachedDetected before caching = %+v, %v", c, err)
+	}
+	if err := s.CacheDetected(ctx, exp[0].Entry); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.GetCachedDetected(ctx, b.RepoURL); err != nil || c == nil || c.Game != "A" || !c.Detected {
+		t.Fatalf("GetCachedDetected = %+v, %v", c, err)
+	}
 }
