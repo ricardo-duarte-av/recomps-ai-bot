@@ -1,4 +1,4 @@
-// Package store persists the recomp/decomp list and pending confirmations in SQLite.
+// Package store persists the recomp/decomp/reimpl list and pending confirmations in SQLite.
 package store
 
 import (
@@ -14,18 +14,22 @@ import (
 	_ "go.mau.fi/util/dbutil/litestream" // registers the sqlite3-fk-wal driver
 )
 
-const schema = `
-CREATE TABLE IF NOT EXISTS recomps (
+// recompsTable creates the main list table under the given name (%[1]s).
+const recompsTable = `
+CREATE TABLE IF NOT EXISTS %[1]s (
 	id              INTEGER PRIMARY KEY AUTOINCREMENT,
 	repo_url        TEXT NOT NULL,
 	game            TEXT NOT NULL,
 	original_system TEXT NOT NULL,
-	kind            TEXT NOT NULL CHECK (kind IN ('recomp', 'decomp')),
+	kind            TEXT NOT NULL CHECK (kind IN ('recomp', 'decomp', 'reimpl')),
 	os              TEXT NOT NULL,
 	added_by        TEXT NOT NULL,
 	added_at        INTEGER NOT NULL,
 	UNIQUE (repo_url, os)
 );
+`
+
+var schema = fmt.Sprintf(recompsTable, "recomps") + `
 CREATE INDEX IF NOT EXISTS recomps_game_idx ON recomps (game);
 
 -- Optional free-form notes per repository (e.g. links to files it needs). Kept apart
@@ -104,10 +108,42 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{DB: db}
-	if _, err := db.Exec(context.Background(), schema); err != nil {
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, schema); err != nil {
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
+	if err := s.migrateKindCheck(ctx); err != nil {
+		return nil, fmt.Errorf("migrating recomps kind constraint: %w", err)
+	}
 	return s, nil
+}
+
+// migrateKindCheck rebuilds the recomps table of databases created before the
+// 'reimpl' kind existed, since SQLite can't alter a CHECK constraint in place.
+func (s *Store) migrateKindCheck(ctx context.Context) error {
+	var def string
+	err := s.DB.QueryRow(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recomps'`).Scan(&def)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(def, "'reimpl'") {
+		return nil
+	}
+	return s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		for _, q := range []string{
+			`DROP TABLE IF EXISTS recomps_new`,
+			fmt.Sprintf(recompsTable, "recomps_new"),
+			`INSERT INTO recomps_new SELECT id, repo_url, game, original_system, kind, os, added_by, added_at FROM recomps`,
+			`DROP TABLE recomps`,
+			`ALTER TABLE recomps_new RENAME TO recomps`,
+			`CREATE INDEX IF NOT EXISTS recomps_game_idx ON recomps (game)`,
+		} {
+			if _, err := s.DB.Exec(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) Close() error { return s.DB.Close() }
@@ -319,7 +355,7 @@ func (s *Store) PurgeExpired(ctx context.Context) error {
 // Statuses for seen_repos.
 const (
 	SeenDismissed = "dismissed" // a moderator cancelled the suggestion; never suggest again
-	SeenNotGame   = "not_game"  // not a game recomp/decomp; re-check after SeenNotGameTTL
+	SeenNotGame   = "not_game"  // not a game recomp/decomp/reimpl; re-check after SeenNotGameTTL
 	SeenFailed    = "failed"    // README/LLM failed; re-check after SeenFailedTTL
 )
 

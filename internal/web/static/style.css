@@ -11,6 +11,8 @@
   --recomp-bg: #e0f5fa;
   --decomp: #9333ea;
   --decomp-bg: #f4e9fe;
+  --reimpl: #b45309;
+  --reimpl-bg: #fdf0dc;
   --radius: 10px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
@@ -29,6 +31,8 @@
     --recomp-bg: #11343d;
     --decomp: #c99bff;
     --decomp-bg: #2f1f45;
+    --reimpl: #f5b25c;
+    --reimpl-bg: #3d2a12;
     color-scheme: dark;
   }
 }
@@ -88,6 +92,7 @@ td.extra:empty { min-width: 0; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
 .tag.recomp { color: var(--recomp); background: var(--recomp-bg); }
 .tag.decomp { color: var(--decomp); background: var(--decomp-bg); }
+.tag.reimpl { color: var(--reimpl); background: var(--reimpl-bg); }
 .os { display: inline-block; margin: 0 4px 4px 0; padding: 1px 8px; border-radius: 6px; font-size: 0.82rem; background: var(--accent-soft); white-space: nowrap; }
 
 .empty { text-align: center; color: var(--muted); padding: 32px 0; }

@@ -36,13 +36,13 @@ File2: https://example.org/file2
 
 Repositories can be on **any git host**: GitHub (and GitHub Enterprise), GitLab (gitlab.com or self-hosted, nested groups included), Gitea, Forgejo/Codeberg, SourceHut, cgit, and so on. Hosts the bot doesn't know are auto-detected; see `forges` in `config.yaml.sample` to set a host's type or an API token.
 
-For **add**, the bot fetches the README, asks the model which game, original system, recomp/decomp and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
+For **add**, the bot fetches the README, asks the model which game, original system, kind (recomp, decomp or reimpl, i.e. a reimplementation) and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
 
 > Adding https://github.com/owner/repo , a recomp of **Game** from System, for Windows, Linux and macOS.
 
 with `OK` and `Cancel` reactions. Nothing is written until **a moderator** reacts with `OK` (✅/👍 also work); `Cancel` (❌/👎) discards it. **Remove** works the same way. Prompts expire after 24 hours.
 
-**Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with the repo, e.g. `github.com/owner/repo`, instead). It then reads the README, and if the model says it's a game recomp/decomp, the bot replies:
+**Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with the repo, e.g. `github.com/owner/repo`, instead). It then reads the README, and if the model says it's a game recomp/decomp/reimpl, the bot replies:
 
 > @room Detected a recomp not in the DB: https://github.com/owner/repo , **Game** from System, for Windows and Linux. Would you like to add it to the DB?
 

@@ -119,7 +119,7 @@
 
     const kind = td("kind");
     const tag = document.createElement("span");
-    tag.className = "tag " + (r.kind === "decomp" ? "decomp" : "recomp");
+    tag.className = "tag " + (["decomp", "reimpl"].includes(r.kind) ? r.kind : "recomp");
     highlight(tag, r.kind, words);
     kind.append(tag);
 

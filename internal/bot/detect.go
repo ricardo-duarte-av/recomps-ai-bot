@@ -16,7 +16,7 @@ import (
 )
 
 // detectLinks looks for git repository links in a regular room message and offers
-// to add any recomp/decomp that isn't in the list yet.
+// to add any recomp/decomp/reimpl that isn't in the list yet.
 func (b *Bot) detectLinks(evt *event.Event, body string) {
 	var repos []forge.Repo
 	for _, r := range b.forge.FindRepos(body) {
@@ -136,7 +136,7 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 		return
 	}
 	if !info.IsGamePort {
-		log.Info().Interface("info", info).Msg("Detected repo is not a game recomp/decomp")
+		log.Info().Interface("info", info).Msg("Detected repo is not a game recomp/decomp/reimpl")
 		_ = b.store.MarkSeen(ctx, url, store.SeenNotGame)
 		return
 	}

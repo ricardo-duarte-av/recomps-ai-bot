@@ -139,7 +139,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		missing = append(missing, "the original system")
 	}
 	if entry.Kind == "" {
-		missing = append(missing, "whether it's a recomp or a decomp")
+		missing = append(missing, "whether it's a recomp, a decomp or a reimpl")
 	}
 	if len(entry.OSes) == 0 {
 		missing = append(missing, "the supported platforms")
