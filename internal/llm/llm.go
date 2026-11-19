@@ -14,6 +14,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/oses"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 )
 
 type Client struct {
@@ -36,7 +37,7 @@ type Intent struct {
 	RepoURL        string   `json:"repo_url"`
 	Game           string   `json:"game"`
 	OriginalSystem string   `json:"original_system"`
-	Kind           string   `json:"kind"` // recomp | decomp | reimpl | "" (unspecified)
+	Kind           string   `json:"kind"` // recomp | decomp | reimpl | toolkit | "" (unspecified)
 	OSes           []string `json:"oses"`
 
 	// Search filters (query intent only), resolved against what's in the list.
@@ -53,9 +54,10 @@ func (i *Intent) HasFilter() bool {
 
 // RepoInfo is what was extracted from a README.
 type RepoInfo struct {
-	// IsGamePort is false for repos that aren't a recomp/decomp/reimpl/port of a specific game
-	// (emulators, tools, libraries, mods, unrelated software).
-	IsGamePort     bool     `json:"is_game_port"`
+	// InScope is false for repos that are neither a recomp/decomp/reimpl/port of a
+	// specific game nor a recomp/decomp toolkit for a system (emulators, libraries,
+	// mods, unrelated software).
+	InScope        bool     `json:"in_scope"`
 	Game           string   `json:"game"`
 	OriginalSystem string   `json:"original_system"`
 	Kind           string   `json:"kind"`
@@ -86,7 +88,7 @@ func objectSchema(props map[string]any) map[string]any {
 var osRules = `Target platforms can be operating systems or consoles/handhelds (a port from one console to another, e.g. a SNES game recompiled to run on the Nintendo 3DS, targets "3ds"). Canonical platform values: ` + strings.Join(oses.All, ", ") + `.
 Map distributions and devices onto them: Steam Deck, SteamOS, Fedora, Ubuntu, Debian, Arch, Mint and any other Linux distro => linux; OSX, OS X, Mac, macOS => macos; Win/PC => windows; Nintendo Switch => switch; New 3DS/2DS => 3ds; DSi => nds; PlayStation Vita => vita; Xbox Series X|S => xboxone; browser/WebAssembly => web.`
 
-const intentPrompt = `You interpret chat messages sent to a Matrix bot that maintains a list of game recompilations ("recomps") and decompilations ("decomps").
+const intentPrompt = `You interpret chat messages sent to a Matrix bot that maintains a list of game recompilations ("recomps"), decompilations ("decomps"), reimplementations ("reimpls") and the toolkits used to make them (static recompilers, decompilation tooling and runtimes for a console, e.g. N64Recomp).
 Classify the message into exactly one intent:
 - "add": the user asks to add a repository to the list.
 - "remove": the user asks to remove a repository from the list.
@@ -96,24 +98,24 @@ Extract only what the user explicitly states; use "", [] or false for anything n
 - repo_url: the repository URL if present.
 - game: the original game's title, spelled out in full when the user uses a well-known abbreviation (e.g. "OoT" => "The Legend of Zelda: Ocarina of Time", "SM64" => "Super Mario 64").
 - original_system: the console/platform the game originally ran on, if stated (e.g. "Nintendo 64", "Game Boy Advance", "PlayStation 2").
-- kind: "recomp", "decomp" or "reimpl" (reimplementation) if stated, otherwise "".
+- kind: "recomp", "decomp" or "reimpl" (reimplementation) if stated; "toolkit" if the user asks about or adds tools for making recomps/decomps rather than games (recompilers, toolkits, frameworks, runtimes, e.g. "which N64 recompilers are there?", "tools to recompile PS3 games"); otherwise "".
 - oses: target platforms (operating systems or consoles) the user mentions (for add: platforms the port runs on; for query/remove: platforms the user wants to play on).
 Distinguish the original system (where the game came FROM) from target platforms (where the port RUNS): "a SNES recomp for 3DS" => original_system "Super Nintendo Entertainment System", oses ["3ds"]. In queries, "games from N64" or "N64 recomps" means original_system; "can I play X on my 3DS/Vita/Steam Deck" means oses.
-For queries only, you are given the games currently in the list as "Title | Original system" lines:
-- titles: the exact titles (the part before " | ", copied character-for-character) of the games the user asks about. Account for accents, abbreviations, subtitles, numbering and regional names ("Pokemon" == "Pokémon", "OoT" and "Zelda 64" == "Ocarina of Time"). A series name without a specific entry ("Zelda") matches every entry in the series. [] if the user didn't ask about specific games or none match.
+For queries only, you are given the games currently in the list as "Title | Original system" lines. A line titled "` + store.ToolkitTitle + `" means the list has toolkits for that system; it is not a game.
+- titles: the exact titles (the part before " | ", copied character-for-character) of the games the user asks about, never "` + store.ToolkitTitle + `". Account for accents, abbreviations, subtitles, numbering and regional names ("Pokemon" == "Pokémon", "OoT" and "Zelda 64" == "Ocarina of Time"). A series name without a specific entry ("Zelda") matches every entry in the series. [] if the user didn't ask about specific games or none match.
 - systems: the exact original systems (the part after " | ", copied character-for-character) the user asks about, e.g. "N64 decomps" => every spelling of Nintendo 64 in the list. [] if not asked or none match.
 - list_all: true only if the user explicitly asks to see the whole list ("what's in the list?", "list everything").
 For add/remove, leave titles and systems empty and list_all false.
 ` // osRules appended at runtime
 
-const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary), a decompilation ("decomp", matching or non-matching source reconstruction) or a reimplementation ("reimpl", new code rebuilt from reverse-engineered behaviour and formats) of a video game.
+const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary), a decompilation ("decomp", matching or non-matching source reconstruction) or a reimplementation ("reimpl", new code rebuilt from reverse-engineered behaviour and formats) of a video game, or a toolkit used to make them ("toolkit").
 Extract:
-- game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask").
-- original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"). Use full common names.
-- kind: "recomp" if it is a recompilation/port produced by recompiling the original binary, "decomp" if it is a decompilation project, "reimpl" if it is a reimplementation: the game rebuilt as new code from reverse-engineered behaviour and file formats, without decompiling or recompiling the original binary (e.g. OpenMW, OpenRCT2).
-- oses: platforms (operating systems or consoles/handhelds) on which the resulting game runs natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
+- game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask"). "" for a toolkit.
+- original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"); for a toolkit, the console whose games it works on. Use full common names.
+- kind: "recomp" if it is a recompilation/port produced by recompiling the original binary, "decomp" if it is a decompilation project, "reimpl" if it is a reimplementation: the game rebuilt as new code from reverse-engineered behaviour and file formats, without decompiling or recompiling the original binary (e.g. OpenMW, OpenRCT2); "toolkit" if it is not a port of one game but a static recompiler, decompilation tooling or runtime for making recomps/decomps of many games of one console (e.g. N64Recomp, ps3recomp, PS2Recomp, decomp-toolkit).
+- oses: platforms (operating systems or consoles/handhelds) on which the resulting game (for a toolkit: the toolkit itself) runs natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
 If the README does not say, use "" or [].
-- is_game_port: true only if this repository is a recompilation, decompilation, reimplementation or source port of one specific video game. False for emulators, recompiler tools/frameworks (e.g. N64Recomp itself), libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
+- in_scope: true only if this repository is a recompilation, decompilation, reimplementation or source port of one specific video game, or a toolkit as described above. False for emulators, general-purpose libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
 ` // osRules appended at runtime
 
 func (c *Client) complete(ctx context.Context, system, user, schemaName string, schema map[string]any, out any) error {
@@ -162,7 +164,7 @@ func (c *Client) ParseIntent(ctx context.Context, message string, known []string
 		"repo_url":        strProp("Repository URL, or empty"),
 		"game":            strProp("Original game title, or empty"),
 		"original_system": strProp("Original console/platform, or empty"),
-		"kind":            enumProp("recomp, decomp, reimpl, or empty if not stated", "recomp", "decomp", "reimpl", ""),
+		"kind":            enumProp("recomp, decomp, reimpl, toolkit, or empty if not stated", append(slices.Clone(store.Kinds), "")...),
 		"oses":            osesProp("Target platforms (OSes or consoles) mentioned"),
 		"titles":          map[string]any{"type": "array", "description": "Query: exact known titles asked about", "items": map[string]any{"type": "string"}},
 		"systems":         map[string]any{"type": "array", "description": "Query: exact known original systems asked about", "items": map[string]any{"type": "string"}},
@@ -189,7 +191,7 @@ func resolveKnown(known, titles, systems []string) (validTitles, validSystems []
 	isTitle, isSystem := map[string]bool{}, map[string]bool{}
 	for _, k := range known {
 		title, system, _ := strings.Cut(k, " | ")
-		isTitle[title], isSystem[system] = true, true
+		isTitle[title], isSystem[system] = title != store.ToolkitTitle, true
 	}
 	for _, t := range titles {
 		if isTitle[t] && !slices.Contains(validTitles, t) {
@@ -207,10 +209,10 @@ func resolveKnown(known, titles, systems []string) (validTitles, validSystems []
 // ExtractFromReadme determines game/system/kind/OSes from a README.
 func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) (*RepoInfo, error) {
 	schema := objectSchema(map[string]any{
-		"is_game_port":    map[string]any{"type": "boolean", "description": "Whether this repository is a recomp/decomp/reimpl/source port of one specific game"},
-		"game":            strProp("Original game title"),
+		"in_scope":        map[string]any{"type": "boolean", "description": "Whether this repository is a recomp/decomp/reimpl/source port of one specific game, or a recomp/decomp toolkit"},
+		"game":            strProp("Original game title, empty for a toolkit"),
 		"original_system": strProp("Original console/platform"),
-		"kind":            enumProp("recomp, decomp or reimpl", "recomp", "decomp", "reimpl", ""),
+		"kind":            enumProp("recomp, decomp, reimpl or toolkit", append(slices.Clone(store.Kinds), "")...),
 		"oses":            osesProp("Platforms (OSes or consoles) the result runs on natively"),
 	})
 	var out RepoInfo
@@ -219,5 +221,8 @@ func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) 
 		return nil, err
 	}
 	out.OSes, _ = oses.NormalizeList(out.OSes)
+	if out.Kind == store.KindToolkit {
+		out.Game = ""
+	}
 	return &out, nil
 }

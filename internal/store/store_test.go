@@ -37,6 +37,17 @@ func TestStore(t *testing.T) {
 	if len(games) != 1 {
 		t.Fatalf("Games = %v", games)
 	}
+	tk := Entry{RepoURL: "https://github.com/N64Recomp/N64Recomp", OriginalSystem: "Nintendo 64", Kind: KindToolkit, OSes: []string{"linux"}}
+	if err := s.Add(ctx, tk, "@mod:x"); err != nil {
+		t.Fatal(err)
+	}
+	games, _ = s.Games(ctx)
+	if want := []string{"(toolkit) | Nintendo 64", "Pokémon Emerald | Game Boy Advance"}; !slices.Equal(games, want) {
+		t.Fatalf("Games with a toolkit = %v, want %v", games, want)
+	}
+	if _, err := s.Remove(ctx, tk.RepoURL, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	p := Pending{EventID: "$ev", RoomID: "!r", Action: "remove", Entry: *got, RequestedBy: "@mod:x"}
 	if err := s.SavePending(ctx, p); err != nil {

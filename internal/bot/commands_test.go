@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,6 +44,42 @@ func TestFormatTitles(t *testing.T) {
 	out := formatTitles(entries)
 	if !strings.Contains(out, "50 repositories for 26 games") || strings.Contains(out, "more") {
 		t.Errorf("unexpected summary:\n%s", out)
+	}
+}
+
+func TestToolkitsHiddenFromSearches(t *testing.T) {
+	entries := []store.Entry{
+		{Game: "Super Mario 64", OriginalSystem: "Nintendo 64", Kind: "recomp", RepoURL: "a"},
+		{OriginalSystem: "Nintendo 64", Kind: store.KindToolkit, RepoURL: "b"},
+		{OriginalSystem: "Nintendo 64", Kind: store.KindToolkit, RepoURL: "c"},
+	}
+	shown, hidden := splitToolkits(slices.Clone(entries), "")
+	if len(shown) != 1 || hidden != 2 {
+		t.Fatalf("default search: shown %v, hidden %d", shown, hidden)
+	}
+	if got := toolkitsHint(hidden, true); !strings.Contains(got, "2 toolkits match too") {
+		t.Errorf("hint = %q", got)
+	}
+	shown, hidden = splitToolkits(slices.Clone(entries[1:]), store.KindToolkit)
+	if len(shown) != 2 || hidden != 0 {
+		t.Fatalf("toolkit search: shown %v, hidden %d", shown, hidden)
+	}
+	if got, want := formatEntries(shown), "**Nintendo 64** toolkits\n- toolkit — "; !strings.HasPrefix(got, want) {
+		t.Errorf("formatEntries = %q, want prefix %q", got, want)
+	}
+	if got := noMatch(&llm.Intent{Kind: store.KindToolkit, Systems: []string{"PlayStation 3"}}); got != "I don't have any toolkit in the list for PlayStation 3." {
+		t.Errorf("noMatch = %q", got)
+	}
+}
+
+func TestDescribe(t *testing.T) {
+	tk := store.Entry{OriginalSystem: "PlayStation 3", Kind: store.KindToolkit, OSes: []string{"linux", "windows"}}
+	if got, want := describe(tk), "toolkit for **PlayStation 3** games, running on Windows and Linux"; got != want {
+		t.Errorf("describe(toolkit) = %q, want %q", got, want)
+	}
+	g := store.Entry{Game: "Halo", OriginalSystem: "Xbox", Kind: "recomp", OSes: []string{"linux"}}
+	if got, want := describe(g), "recomp of **Halo** from Xbox, for Linux"; got != want {
+		t.Errorf("describe(game) = %q, want %q", got, want)
 	}
 }
 

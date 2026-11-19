@@ -65,7 +65,10 @@
     });
 
     out.sort((a, b) => {
-      const d = a._n[sort.col].localeCompare(b._n[sort.col]);
+      // Toolkits have no game, so they go after the games instead of first.
+      const d = sort.col === "game" && (a.kind === "toolkit") !== (b.kind === "toolkit")
+        ? (a.kind === "toolkit" ? 1 : -1)
+        : a._n[sort.col].localeCompare(b._n[sort.col]);
       return d * sort.dir || a._n.game.localeCompare(b._n.game);
     });
 
@@ -114,12 +117,14 @@
   function renderRow(r, words) {
     const tr = document.createElement("tr");
 
-    const game = td("game"); highlight(game, r.game, words);
+    const game = td("game");
+    if (r.kind === "toolkit" && !r.game) game.append(Object.assign(document.createElement("span"), { className: "none", textContent: "—" }));
+    else highlight(game, r.game, words);
     const system = td("system"); highlight(system, r.system, words);
 
     const kind = td("kind");
     const tag = document.createElement("span");
-    tag.className = "tag " + (["decomp", "reimpl"].includes(r.kind) ? r.kind : "recomp");
+    tag.className = "tag " + (["decomp", "reimpl", "toolkit"].includes(r.kind) ? r.kind : "recomp");
     highlight(tag, r.kind, words);
     kind.append(tag);
 

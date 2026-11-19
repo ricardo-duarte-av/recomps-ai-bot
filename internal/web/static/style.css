@@ -13,6 +13,8 @@
   --decomp-bg: #f4e9fe;
   --reimpl: #b45309;
   --reimpl-bg: #fdf0dc;
+  --toolkit: #15803d;
+  --toolkit-bg: #e3f6e8;
   --radius: 10px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
@@ -33,6 +35,8 @@
     --decomp-bg: #2f1f45;
     --reimpl: #f5b25c;
     --reimpl-bg: #3d2a12;
+    --toolkit: #6ee59a;
+    --toolkit-bg: #133a22;
     color-scheme: dark;
   }
 }
@@ -93,6 +97,8 @@ td.extra:empty { min-width: 0; }
 .tag.recomp { color: var(--recomp); background: var(--recomp-bg); }
 .tag.decomp { color: var(--decomp); background: var(--decomp-bg); }
 .tag.reimpl { color: var(--reimpl); background: var(--reimpl-bg); }
+.tag.toolkit { color: var(--toolkit); background: var(--toolkit-bg); }
+td.game .none { color: var(--muted); }
 .os { display: inline-block; margin: 0 4px 4px 0; padding: 1px 8px; border-radius: 6px; font-size: 0.82rem; background: var(--accent-soft); white-space: nowrap; }
 
 .empty { text-align: center; color: var(--muted); padding: 32px 0; }

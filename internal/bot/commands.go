@@ -21,8 +21,9 @@ const (
 	reactCancel = "Cancel"
 )
 
-const helpText = "I keep a list of game recomps and decomps. Try:\n\n" +
+const helpText = "I keep a list of game recomps, decomps and reimplementations, and of the toolkits used to make them. Try:\n\n" +
 	"- `is there any recomp for Pokemon Emerald?`\n" +
+	"- `which toolkits are there for N64?`\n" +
 	"- `add this repo to the list https://github.com/owner/repo` (moderators)\n" +
 	"- `remove repo https://github.com/owner/repo from the list` (moderators)\n" +
 	"- `add extra https://github.com/owner/repo` followed by a ``` code block with notes or links (moderators; `remove extra <repo>` clears it)"
@@ -100,8 +101,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		return
 	}
 	if existing != nil && !addsSomethingNew(existing, intent) {
-		b.reply(ctx, evt, fmt.Sprintf("%s is already in the list: %s of **%s** from %s, for %s.",
-			existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes))))
+		b.reply(ctx, evt, fmt.Sprintf("%s is already in the list: %s.", existing.RepoURL, describe(*existing)))
 		return
 	}
 
@@ -130,16 +130,19 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 	if len(intent.OSes) > 0 {
 		entry.OSes = intent.OSes
 	}
+	if entry.Kind == store.KindToolkit {
+		entry.Game = "" // toolkits aren't tied to one game
+	}
 
 	var missing []string
-	if entry.Game == "" {
+	if entry.Game == "" && entry.Kind != store.KindToolkit {
 		missing = append(missing, "the game")
 	}
 	if entry.OriginalSystem == "" {
 		missing = append(missing, "the original system")
 	}
 	if entry.Kind == "" {
-		missing = append(missing, "whether it's a recomp, a decomp or a reimpl")
+		missing = append(missing, "whether it's a recomp, a decomp, a reimpl or a toolkit")
 	}
 	if len(entry.OSes) == 0 {
 		missing = append(missing, "the supported platforms")
@@ -163,8 +166,8 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		return
 	}
 
-	msg := fmt.Sprintf("Adding %s , a %s of **%s** from %s, for %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
-		entry.RepoURL, entry.Kind, entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes), reactOK, reactCancel)
+	msg := fmt.Sprintf("Adding %s , a %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
+		entry.RepoURL, describe(entry), reactOK, reactCancel)
 	b.prompt(ctx, evt, "add", entry, msg, false)
 }
 
@@ -203,8 +206,8 @@ func (b *Bot) handleRemove(ctx context.Context, evt *event.Event, text string, i
 		}
 		entry.OSes = subset
 	}
-	msg := fmt.Sprintf("Removing %s from %s for game **%s** on %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
-		entry.RepoURL, oses.JoinDisplay(entry.OSes), entry.Game, entry.OriginalSystem, reactOK, reactCancel)
+	msg := fmt.Sprintf("Removing %s from %s for %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
+		entry.RepoURL, oses.JoinDisplay(entry.OSes), subject(entry), reactOK, reactCancel)
 	b.prompt(ctx, evt, "remove", entry, msg, false)
 }
 
@@ -258,8 +261,7 @@ func (b *Bot) handleRepoQuery(ctx context.Context, evt *event.Event, repo forge.
 		b.reply(ctx, evt, msg)
 		return
 	}
-	msg := fmt.Sprintf("Yes, %s is in the list: %s of **%s** from %s, for %s.",
-		existing.RepoURL, existing.Kind, existing.Game, existing.OriginalSystem, oses.JoinDisplay(sortOSes(existing.OSes)))
+	msg := fmt.Sprintf("Yes, %s is in the list: %s.", existing.RepoURL, describe(*existing))
 	if existing.Extra != "" {
 		msg += formatExtra(existing.Extra)
 	}
@@ -274,7 +276,8 @@ const maxListed = 15
 const maxTitles = 40
 
 // handleQuery runs a search: every filter the user stated (games, original systems,
-// recomp/decomp, target platforms) narrows the list, resolved by the intent call.
+// kind, target platforms) narrows the list, resolved by the intent call. Toolkits
+// only show up when asked for; otherwise the reply just mentions how many matched.
 func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Intent) {
 	log := zerolog.Ctx(ctx)
 	all, err := b.store.All(ctx)
@@ -314,14 +317,43 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 	if len(intent.OSes) > 0 {
 		entries = filterOSes(entries, intent.OSes)
 	}
+	entries, toolkits := splitToolkits(entries, intent.Kind)
+	var msg string
 	switch {
 	case len(entries) == 0:
-		b.reply(ctx, evt, noMatch(intent))
+		msg = noMatch(intent)
 	case len(entries) > maxListed:
-		b.reply(ctx, evt, formatTitles(entries))
+		msg = formatTitles(entries)
 	default:
-		b.reply(ctx, evt, formatEntries(entries))
+		msg = formatEntries(entries)
 	}
+	b.reply(ctx, evt, msg+toolkitsHint(toolkits, len(entries) > 0))
+}
+
+// splitToolkits removes toolkits from a search result unless the user asked for
+// them (kind), returning how many were removed.
+func splitToolkits(entries []store.Entry, kind string) ([]store.Entry, int) {
+	if kind == store.KindToolkit {
+		return entries, 0
+	}
+	n := len(entries)
+	entries = slices.DeleteFunc(entries, func(e store.Entry) bool { return e.Kind == store.KindToolkit })
+	return entries, n - len(entries)
+}
+
+// toolkitsHint mentions toolkits that a search matched but didn't show.
+func toolkitsHint(n int, shown bool) string {
+	if n == 0 {
+		return ""
+	}
+	what := "a toolkit matches"
+	if n > 1 {
+		what = fmt.Sprintf("%d toolkits match", n)
+	}
+	if shown {
+		return fmt.Sprintf("\n\n(%s too; ask for toolkits to see them.)", what)
+	}
+	return fmt.Sprintf(" However, %s; ask for toolkits to see them.", what)
 }
 
 // noMatch describes an empty search result in terms of what the user asked.
@@ -331,6 +363,10 @@ func noMatch(intent *llm.Intent) string {
 		what = "any " + intent.Kind
 	}
 	msg := "I don't have " + what + " in the list"
+	from := " from "
+	if intent.Kind == store.KindToolkit {
+		from = " for "
+	}
 	switch {
 	case intent.Game != "":
 		msg += " for " + intent.Game
@@ -339,9 +375,9 @@ func noMatch(intent *llm.Intent) string {
 	}
 	switch {
 	case intent.OriginalSystem != "":
-		msg += " from " + intent.OriginalSystem
+		msg += from + intent.OriginalSystem
 	case len(intent.Systems) > 0:
-		msg += " from " + joinAnd(intent.Systems)
+		msg += from + joinAnd(intent.Systems)
 	}
 	if len(intent.OSes) > 0 {
 		msg += " on " + oses.JoinDisplay(intent.OSes)
@@ -349,26 +385,26 @@ func noMatch(intent *llm.Intent) string {
 	return msg + "."
 }
 
-// formatTitles summarizes a large result as game titles only.
+// formatTitles summarizes a large result as game titles (or toolkit systems) only.
 func formatTitles(entries []store.Entry) string {
-	type game struct{ title, system string }
-	var games []game
-	seen := map[game]bool{}
+	var groups []string
 	for _, e := range entries {
-		g := game{e.Game, e.OriginalSystem}
-		if !seen[g] {
-			seen[g] = true
-			games = append(games, g)
+		if h := heading(e); !slices.Contains(groups, h) {
+			groups = append(groups, h)
 		}
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%d repositories for %d games match. Ask about a specific game for the links.\n\n", len(entries), len(games))
-	for i, g := range games {
+	what, ask := "games", "game"
+	if entries[0].Kind == store.KindToolkit {
+		what, ask = "systems", "system" // a large result is all toolkits or none
+	}
+	fmt.Fprintf(&sb, "%d repositories for %d %s match. Ask about a specific %s for the links.\n\n", len(entries), len(groups), what, ask)
+	for i, g := range groups {
 		if i == maxTitles {
-			fmt.Fprintf(&sb, "- …and %d more\n", len(games)-maxTitles)
+			fmt.Fprintf(&sb, "- …and %d more\n", len(groups)-maxTitles)
 			break
 		}
-		fmt.Fprintf(&sb, "- **%s** (%s)\n", g.title, g.system)
+		fmt.Fprintf(&sb, "- %s\n", g)
 	}
 	return sb.String()
 }
@@ -385,19 +421,44 @@ func titlesOfEntries(entries []store.Entry) []string {
 
 func formatEntries(entries []store.Entry) string {
 	var sb strings.Builder
-	lastGame := ""
+	lastHeading := ""
 	for _, e := range entries {
-		header := e.Game + "\x00" + e.OriginalSystem
-		if header != lastGame {
-			if lastGame != "" {
+		if h := heading(e); h != lastHeading {
+			if lastHeading != "" {
 				sb.WriteString("\n")
 			}
-			fmt.Fprintf(&sb, "**%s** (%s)\n", e.Game, e.OriginalSystem)
-			lastGame = header
+			sb.WriteString(h + "\n")
+			lastHeading = h
 		}
 		fmt.Fprintf(&sb, "- %s — %s — %s\n", e.Kind, oses.JoinDisplay(sortOSes(e.OSes)), e.RepoURL)
 	}
 	return sb.String()
+}
+
+// heading groups search results: "**Game** (System)", or "**System** toolkits".
+func heading(e store.Entry) string {
+	if e.Kind == store.KindToolkit {
+		return fmt.Sprintf("**%s** toolkits", e.OriginalSystem)
+	}
+	return fmt.Sprintf("**%s** (%s)", e.Game, e.OriginalSystem)
+}
+
+// describe says what an entry is, e.g. "recomp of **Game** from System, for
+// Windows and Linux" or "toolkit for **System** games, running on Linux".
+func describe(e store.Entry) string {
+	platforms := oses.JoinDisplay(sortOSes(e.OSes))
+	if e.Kind == store.KindToolkit {
+		return fmt.Sprintf("toolkit for **%s** games, running on %s", e.OriginalSystem, platforms)
+	}
+	return fmt.Sprintf("%s of **%s** from %s, for %s", e.Kind, e.Game, e.OriginalSystem, platforms)
+}
+
+// subject names what an entry is for: "game **Game** on System" or "the **System** toolkit".
+func subject(e store.Entry) string {
+	if e.Kind == store.KindToolkit {
+		return fmt.Sprintf("the **%s** toolkit", e.OriginalSystem)
+	}
+	return fmt.Sprintf("game **%s** on %s", e.Game, e.OriginalSystem)
 }
 
 func filterOSes(entries []store.Entry, want []string) []store.Entry {

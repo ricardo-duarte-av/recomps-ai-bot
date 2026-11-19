@@ -1,4 +1,4 @@
-// Package bot implements the Matrix side of the recomp/decomp/reimpl list bot.
+// Package bot implements the Matrix side of the recomp/decomp/reimpl/toolkit list bot.
 package bot
 
 import (

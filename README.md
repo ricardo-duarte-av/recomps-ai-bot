@@ -1,6 +1,6 @@
 # recomps-ai-bot
 
-A Matrix bot that keeps a list of game **recomps** (static recompilations / native ports) and **decomps** (decompilation projects), and answers questions about it. It uses a lightweight OpenAI model (default `gpt-5-mini`) to understand messages and read repository READMEs. Works in encrypted and unencrypted rooms.
+A Matrix bot that keeps a list of game **recomps** (static recompilations / native ports), **decomps** (decompilation projects) and **reimpls** (reimplementations), plus the **toolkits** used to make them (static recompilers, decompilation tooling and runtimes for a console, e.g. N64Recomp), and answers questions about it. It uses a lightweight OpenAI model (default `gpt-5-mini`) to understand messages and read repository READMEs. Works in encrypted and unencrypted rooms.
 
 The bot only reacts when it's **explicitly mentioned**, and only in the rooms listed in `config.yaml`. It answers with Matrix replies to the message it's answering; set `matrix.answer_with_reply: false` to send regular messages instead.
 
@@ -11,7 +11,10 @@ Anyone:
 ```
 @recompbot is there any recomp for Pokemon Emerald?
 @recompbot any decomps for N64 games on macOS?
+@recompbot which toolkits are there for PS3?
 ```
+
+Toolkits are left out of searches unless you ask for them; a search that matches some says how many.
 
 Moderators (power level ≥ `moderator_level`, default 50):
 
@@ -36,17 +39,17 @@ File2: https://example.org/file2
 
 Repositories can be on **any git host**: GitHub (and GitHub Enterprise), GitLab (gitlab.com or self-hosted, nested groups included), Gitea, Forgejo/Codeberg, SourceHut, cgit, and so on. Hosts the bot doesn't know are auto-detected; see `forges` in `config.yaml.sample` to set a host's type or an API token.
 
-For **add**, the bot fetches the README, asks the model which game, original system, kind (recomp, decomp or reimpl, i.e. a reimplementation) and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
+For **add**, the bot fetches the README, asks the model which game, original system, kind (recomp, decomp, reimpl, i.e. a reimplementation, or toolkit; toolkits have no game, only the system they work on) and supported OSes it is, and anything the moderator states in the message overrides that. It then posts:
 
 > Adding https://github.com/owner/repo , a recomp of **Game** from System, for Windows, Linux and macOS.
 
 with `OK` and `Cancel` reactions. Nothing is written until **a moderator** reacts with `OK` (✅/👍 also work); `Cancel` (❌/👎) discards it. **Remove** works the same way. Prompts expire after 24 hours.
 
-**Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with the repo, e.g. `github.com/owner/repo`, instead). It then reads the README, and if the model says it's a game recomp/decomp/reimpl, the bot replies:
+**Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with the repo, e.g. `github.com/owner/repo`, instead). It then reads the README, and if the model says it's a game recomp/decomp/reimpl or a toolkit, the bot replies:
 
 > @room Detected a recomp not in the DB: https://github.com/owner/repo , **Game** from System, for Windows and Linux. Would you like to add it to the DB?
 
-with the same `OK`/`Cancel` reactions. `OK` from a moderator adds it; `Cancel` dismisses it for good. If the same repo is posted in several rooms, the bot asks in each of them, and the first answer in any room applies everywhere (the other rooms get a reply saying so). While a question is open, posting the repo again in the same room is ignored. If no moderator answers within 6 hours of the latest question, the questions are dropped in all rooms and the repo is suggested again the next time anyone posts it (reusing the earlier classification, with no new AI call). Repos that aren't games (emulators, tools, libraries...) are remembered for 30 days so posting them again costs nothing. Configure under `detect:` in `config.yaml`.
+with the same `OK`/`Cancel` reactions. `OK` from a moderator adds it; `Cancel` dismisses it for good. If the same repo is posted in several rooms, the bot asks in each of them, and the first answer in any room applies everywhere (the other rooms get a reply saying so). While a question is open, posting the repo again in the same room is ignored. If no moderator answers within 6 hours of the latest question, the questions are dropped in all rooms and the repo is suggested again the next time anyone posts it (reusing the earlier classification, with no new AI call). Repos that are neither games nor toolkits (emulators, libraries, mods...) are remembered for 30 days so posting them again costs nothing. Configure under `detect:` in `config.yaml`.
 
 Each supported target platform is stored as its own row. Targets can be operating systems or other consoles/handhelds (e.g. a SNES game recompiled for the Nintendo 3DS): `windows, linux, macos, freebsd, haiku, dos, android, ios, web, switch, 3ds, nds, wiiu, wii, gamecube, n64, gba, vita, psp, ps2, ps3, ps4, ps5, xbox, xbox360, xboxone, dreamcast`. Names are normalized, e.g. Steam Deck/Fedora/Ubuntu/Debian/Arch → `linux`, OSX/Mac → `macos`, New 3DS/2DS → `3ds`, Xbox Series X|S → `xboxone`.
 

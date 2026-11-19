@@ -110,8 +110,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			return
 		}
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Msg("Added entry")
-		added := fmt.Sprintf("Added %s (%s of **%s** from %s) for %s. Confirmed by %s",
-			e.RepoURL, e.Kind, e.Game, e.OriginalSystem, oses.JoinDisplay(e.OSes), mention(evt.Sender))
+		added := fmt.Sprintf("Added %s (%s). Confirmed by %s", e.RepoURL, describe(e), mention(evt.Sender))
 		b.reply(ctx, target, added+".")
 		tellOthers(added + " in another room.")
 	case "remove":
@@ -122,8 +121,8 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			return
 		}
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Int64("rows", n).Msg("Removed entry")
-		b.reply(ctx, target, fmt.Sprintf("Removed %s from %s for **%s**. Confirmed by %s.",
-			e.RepoURL, oses.JoinDisplay(e.OSes), e.Game, mention(evt.Sender)))
+		b.reply(ctx, target, fmt.Sprintf("Removed %s from %s for %s. Confirmed by %s.",
+			e.RepoURL, oses.JoinDisplay(e.OSes), subject(e), mention(evt.Sender)))
 	}
 }
 

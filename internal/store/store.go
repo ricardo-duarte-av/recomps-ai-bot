@@ -1,4 +1,4 @@
-// Package store persists the recomp/decomp/reimpl list and pending confirmations in SQLite.
+// Package store persists the recomp/decomp/reimpl/toolkit list and pending confirmations in SQLite.
 package store
 
 import (
@@ -14,14 +14,31 @@ import (
 	_ "go.mau.fi/util/dbutil/litestream" // registers the sqlite3-fk-wal driver
 )
 
-// recompsTable creates the main list table under the given name (%[1]s).
+// Kinds of entries in the list.
+const (
+	KindRecomp = "recomp"
+	KindDecomp = "decomp"
+	KindReimpl = "reimpl"
+	// KindToolkit is a recompiler, decompilation tooling or runtime for one original
+	// system rather than a port of one game (e.g. N64Recomp). Its Game is empty.
+	KindToolkit = "toolkit"
+)
+
+// Kinds lists every valid kind.
+var Kinds = []string{KindRecomp, KindDecomp, KindReimpl, KindToolkit}
+
+// ToolkitTitle stands in for the game title of toolkits in Games.
+const ToolkitTitle = "(toolkit)"
+
+// recompsTable creates the main list table under the given name (%[1]s) with the
+// kind constraint (%[2]s).
 const recompsTable = `
 CREATE TABLE IF NOT EXISTS %[1]s (
 	id              INTEGER PRIMARY KEY AUTOINCREMENT,
 	repo_url        TEXT NOT NULL,
 	game            TEXT NOT NULL,
 	original_system TEXT NOT NULL,
-	kind            TEXT NOT NULL CHECK (kind IN ('recomp', 'decomp', 'reimpl')),
+	kind            TEXT NOT NULL CHECK (kind IN (%[2]s)),
 	os              TEXT NOT NULL,
 	added_by        TEXT NOT NULL,
 	added_at        INTEGER NOT NULL,
@@ -29,7 +46,16 @@ CREATE TABLE IF NOT EXISTS %[1]s (
 );
 `
 
-var schema = fmt.Sprintf(recompsTable, "recomps") + `
+// kindList renders Kinds for the CHECK constraint, e.g. 'recomp', 'decomp'.
+func kindList() string {
+	quoted := make([]string, len(Kinds))
+	for i, k := range Kinds {
+		quoted[i] = "'" + k + "'"
+	}
+	return strings.Join(quoted, ", ")
+}
+
+var schema = fmt.Sprintf(recompsTable, "recomps", kindList()) + `
 CREATE INDEX IF NOT EXISTS recomps_game_idx ON recomps (game);
 
 -- Optional free-form notes per repository (e.g. links to files it needs). Kept apart
@@ -118,25 +144,28 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
-// migrateKindCheck rebuilds the recomps table of databases created before the
-// 'reimpl' kind existed, since SQLite can't alter a CHECK constraint in place.
+// migrateKindCheck rebuilds the recomps table of databases created before one of
+// the current kinds existed, since SQLite can't alter a CHECK constraint in place.
+// Repos written off as "not a game" are forgotten too, since some of them may be
+// toolkits that can now be listed.
 func (s *Store) migrateKindCheck(ctx context.Context) error {
 	var def string
 	err := s.DB.QueryRow(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recomps'`).Scan(&def)
 	if err != nil {
 		return err
 	}
-	if strings.Contains(def, "'reimpl'") {
+	if strings.Contains(def, "CHECK (kind IN ("+kindList()+"))") {
 		return nil
 	}
 	return s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
 		for _, q := range []string{
 			`DROP TABLE IF EXISTS recomps_new`,
-			fmt.Sprintf(recompsTable, "recomps_new"),
+			fmt.Sprintf(recompsTable, "recomps_new", kindList()),
 			`INSERT INTO recomps_new SELECT id, repo_url, game, original_system, kind, os, added_by, added_at FROM recomps`,
 			`DROP TABLE recomps`,
 			`ALTER TABLE recomps_new RENAME TO recomps`,
 			`CREATE INDEX IF NOT EXISTS recomps_game_idx ON recomps (game)`,
+			`DELETE FROM seen_repos WHERE status = 'not_game'`,
 		} {
 			if _, err := s.DB.Exec(ctx, q); err != nil {
 				return err
@@ -245,9 +274,13 @@ func (s *Store) All(ctx context.Context) ([]Entry, error) {
 	return s.query(ctx, "")
 }
 
-// Games returns all distinct game titles with their original systems.
+// Games returns all distinct game titles with their original systems, as
+// "Title | System" lines. Toolkits are listed once per system with ToolkitTitle
+// as their title.
 func (s *Store) Games(ctx context.Context) ([]string, error) {
-	rows, err := s.DB.Query(ctx, `SELECT DISTINCT game, original_system FROM recomps ORDER BY game`)
+	rows, err := s.DB.Query(ctx, `
+		SELECT DISTINCT CASE WHEN kind = $1 THEN $2 ELSE game END AS title, original_system
+		FROM recomps ORDER BY title`, KindToolkit, ToolkitTitle)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +388,7 @@ func (s *Store) PurgeExpired(ctx context.Context) error {
 // Statuses for seen_repos.
 const (
 	SeenDismissed = "dismissed" // a moderator cancelled the suggestion; never suggest again
-	SeenNotGame   = "not_game"  // not a game recomp/decomp/reimpl; re-check after SeenNotGameTTL
+	SeenNotGame   = "not_game"  // not a game port or toolkit; re-check after SeenNotGameTTL
 	SeenFailed    = "failed"    // README/LLM failed; re-check after SeenFailedTTL
 )
 

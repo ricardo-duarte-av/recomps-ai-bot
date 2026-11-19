@@ -16,7 +16,7 @@ import (
 )
 
 // detectLinks looks for git repository links in a regular room message and offers
-// to add any recomp/decomp/reimpl that isn't in the list yet.
+// to add any recomp/decomp/reimpl/toolkit that isn't in the list yet.
 func (b *Bot) detectLinks(evt *event.Event, body string) {
 	var repos []forge.Repo
 	for _, r := range b.forge.FindRepos(body) {
@@ -135,13 +135,13 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
-	if !info.IsGamePort {
-		log.Info().Interface("info", info).Msg("Detected repo is not a game recomp/decomp/reimpl")
+	if !info.InScope {
+		log.Info().Interface("info", info).Msg("Detected repo is not a game port or toolkit")
 		_ = b.store.MarkSeen(ctx, url, store.SeenNotGame)
 		return
 	}
-	if info.Game == "" || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
-		// A game port we couldn't fully describe: retry later rather than writing it off.
+	if (info.Game == "" && info.Kind != store.KindToolkit) || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
+		// A game port or toolkit we couldn't fully describe: retry later rather than writing it off.
 		log.Warn().Interface("info", info).Msg("Detected game repo with incomplete info")
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
@@ -161,10 +161,13 @@ func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) 
 	if b.cfg.Detect.ShouldMention() {
 		prefix = "@room "
 	}
-	msg := fmt.Sprintf("%sDetected a %s not in the DB: %s , **%s** from %s, for %s. Would you like to add it to the DB?\n\n"+
+	what := fmt.Sprintf("**%s** from %s, for %s", entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
+	if entry.Kind == store.KindToolkit {
+		what = fmt.Sprintf("for **%s** games, running on %s", entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
+	}
+	msg := fmt.Sprintf("%sDetected a %s not in the DB: %s , %s. Would you like to add it to the DB?\n\n"+
 		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, I'll drop it and ask again the next time it's posted.",
-		prefix, entry.Kind, entry.RepoURL, entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes), reactOK, reactCancel,
-		formatHours(store.DetectedPendingTTL))
+		prefix, entry.Kind, entry.RepoURL, what, reactOK, reactCancel, formatHours(store.DetectedPendingTTL))
 	b.prompt(ctx, evt, "add", entry, msg, b.cfg.Detect.ShouldMention())
 }
 
