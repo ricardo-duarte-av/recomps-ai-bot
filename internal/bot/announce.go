@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -43,7 +44,13 @@ func announcement(e store.Entry, name string, by id.UserID) string {
 		what = fmt.Sprintf("a %s of %s from %s for %s", kind, e.Game, e.OriginalSystem, platforms)
 	}
 	return fmt.Sprintf("New %s added to the DB: **%s**, %s - %s , by [%s](%s)",
-		kind, repoName(e.RepoURL), what, e.RepoURL, escapeLinkText(name), by.URI().MatrixToURL())
+		kind, repoName(e.RepoURL), what, e.RepoURL, escapeLinkText(name), matrixToURL(by))
+}
+
+// matrixToURL links to a user with the ID percent-encoded, e.g.
+// https://matrix.to/#/%40mod%3Aexample.org, which clients turn into a user pill.
+func matrixToURL(userID id.UserID) string {
+	return "https://matrix.to/#/" + url.QueryEscape(userID.String())
 }
 
 func escapeLinkText(s string) string {

@@ -502,5 +502,5 @@ func joinAnd(items []string) string {
 
 // mention renders a user mention for messages.
 func mention(userID id.UserID) string {
-	return fmt.Sprintf("[%s](%s)", userID.String(), userID.URI().MatrixToURL())
+	return fmt.Sprintf("[%s](%s)", userID.String(), matrixToURL(userID))
 }
