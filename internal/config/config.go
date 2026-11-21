@@ -59,6 +59,9 @@ type Matrix struct {
 	// AnswerWithReply sends the bot's answers as Matrix replies to the message they
 	// answer (defaults to true). When false they're sent as regular messages.
 	AnswerWithReply *bool `yaml:"answer_with_reply"`
+	// AnnounceRoom (room ID or alias, optional) gets a message for every new entry
+	// added to the list. It doesn't have to be one of the allowed rooms.
+	AnnounceRoom string `yaml:"announce_room"`
 }
 
 func (m Matrix) ShouldReply() bool { return m.AnswerWithReply == nil || *m.AnswerWithReply }

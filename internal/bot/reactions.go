@@ -114,6 +114,11 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		if e.Detected {
 			addedBy = evt.Sender.String() // the link poster didn't ask for this; the confirming mod did
 		}
+		// Only brand-new repos are announced, not updates of an existing entry.
+		existing, err := b.store.GetByRepo(ctx, e.RepoURL)
+		if err != nil {
+			log.Err(err).Msg("Failed to look up repo")
+		}
 		if err := b.store.Add(ctx, e, addedBy); err != nil {
 			log.Err(err).Msg("Failed to add entry")
 			b.reply(ctx, target, "Database error, the entry was not added.")
@@ -122,6 +127,9 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Msg("Added entry")
 		added := fmt.Sprintf("Added %s (%s). Confirmed by %s", e.RepoURL, describe(e), mention(evt.Sender))
 		closeAll("Added", added+".", added+" in another room.")
+		if existing == nil && err == nil {
+			b.announce(ctx, e, evt.RoomID, evt.Sender)
+		}
 	case "remove":
 		n, err := b.store.Remove(ctx, e.RepoURL, e.OSes)
 		if err != nil {

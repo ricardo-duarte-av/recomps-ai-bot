@@ -19,6 +19,9 @@ matrix:
   # Send answers as replies to the message they answer (true), or as regular
   # messages in the room (false).
   answer_with_reply: true
+  # Optional room (ID or alias) where the bot announces every new entry added to
+  # the list. It doesn't need to be in allowed_rooms; the bot only posts there.
+  announce_room: ""
 
 openai:
   api_key: "sk-..."

@@ -35,8 +35,10 @@ type Bot struct {
 	userID      id.UserID
 	displayName string
 	rooms       map[id.RoomID]bool
-	ignored     map[id.UserID]bool
-	startTime   time.Time
+	// announceRoom gets a message for each new entry; empty when not configured.
+	announceRoom id.RoomID
+	ignored      map[id.UserID]bool
+	startTime    time.Time
 
 	createEvents sync.Map // id.RoomID -> *event.Event (m.room.create never changes)
 	detecting    sync.Map // repo URL -> *sync.Mutex held while link detection checks it
@@ -93,6 +95,17 @@ func (b *Bot) Run(ctx context.Context) error {
 		}
 	}
 
+	if r := b.cfg.Matrix.AnnounceRoom; r != "" {
+		roomID, err := b.resolveRoom(ctx, r)
+		if err != nil {
+			return fmt.Errorf("resolving announce room %s: %w", r, err)
+		}
+		b.announceRoom = roomID
+		if _, err := client.JoinRoom(ctx, r, nil); err != nil {
+			b.log.Warn().Err(err).Str("room", r).Msg("Failed to join announce room")
+		}
+	}
+
 	b.startTime = time.Now()
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
 	syncer.OnEventType(event.EventMessage, b.onMessage)
@@ -138,7 +151,7 @@ func (b *Bot) purgeLoop(ctx context.Context) {
 
 // onMember auto-joins invites to allowed rooms only.
 func (b *Bot) onMember(ctx context.Context, evt *event.Event) {
-	if evt.GetStateKey() != b.userID.String() || !b.rooms[evt.RoomID] {
+	if evt.GetStateKey() != b.userID.String() || (!b.rooms[evt.RoomID] && evt.RoomID != b.announceRoom) {
 		return
 	}
 	if evt.Content.AsMember().Membership == event.MembershipInvite {
