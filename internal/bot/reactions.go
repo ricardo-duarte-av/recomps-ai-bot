@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
@@ -83,6 +84,14 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			b.reply(ctx, &event.Event{ID: id.EventID(o.EventID), RoomID: id.RoomID(o.RoomID), Sender: b.userID}, msg)
 		}
 	}
+	// closeAll swaps the OK/Cancel reactions on every answered prompt for the outcome.
+	closeAll := func(verb string) {
+		label := fmt.Sprintf("%s by %s", verb, evt.Sender)
+		b.closePrompt(ctx, evt.RoomID, promptID, label)
+		for _, o := range others {
+			b.closePrompt(ctx, id.RoomID(o.RoomID), id.EventID(o.EventID), label)
+		}
+	}
 
 	if !confirm {
 		if p.Action == "add" && e.Detected {
@@ -92,9 +101,11 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			msg := fmt.Sprintf("I won't suggest %s again (a moderator can still add it explicitly).", e.RepoURL)
 			b.reply(ctx, target, fmt.Sprintf("Dismissed by %s. %s", mention(evt.Sender), msg))
 			tellOthers(fmt.Sprintf("Dismissed by %s in another room. %s", mention(evt.Sender), msg))
+			closeAll("Dismissed")
 			return
 		}
 		b.reply(ctx, target, fmt.Sprintf("Cancelled by %s.", mention(evt.Sender)))
+		closeAll("Cancelled")
 		return
 	}
 
@@ -113,6 +124,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		added := fmt.Sprintf("Added %s (%s). Confirmed by %s", e.RepoURL, describe(e), mention(evt.Sender))
 		b.reply(ctx, target, added+".")
 		tellOthers(added + " in another room.")
+		closeAll("Added")
 	case "remove":
 		n, err := b.store.Remove(ctx, e.RepoURL, e.OSes)
 		if err != nil {
@@ -123,6 +135,36 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Int64("rows", n).Msg("Removed entry")
 		b.reply(ctx, target, fmt.Sprintf("Removed %s from %s for %s. Confirmed by %s.",
 			e.RepoURL, oses.JoinDisplay(e.OSes), subject(e), mention(evt.Sender)))
+		closeAll("Removed")
+	}
+}
+
+// closePrompt redacts every reaction on an answered prompt (the bot's own OK/Cancel
+// and everyone's votes) and reacts with label instead, so the prompt shows its outcome
+// and can't be mistaken for still open. Needs the bot to be allowed to redact others'
+// events. All annotations are redacted, not just OK/Cancel ones: in encrypted rooms the
+// reaction key isn't readable without decrypting each event.
+func (b *Bot) closePrompt(ctx context.Context, roomID id.RoomID, promptID id.EventID, label string) {
+	log := zerolog.Ctx(ctx).With().Stringer("room", roomID).Stringer("prompt", promptID).Logger()
+	req := &mautrix.ReqGetRelations{RelationType: event.RelAnnotation, Limit: 100}
+	for {
+		resp, err := b.client.GetRelations(ctx, roomID, promptID, req)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to list the prompt's reactions")
+			break
+		}
+		for _, r := range resp.Chunk {
+			if _, err := b.client.RedactEvent(ctx, roomID, r.ID); err != nil {
+				log.Warn().Err(err).Stringer("reaction", r.ID).Msg("Failed to redact reaction")
+			}
+		}
+		if resp.NextBatch == "" {
+			break
+		}
+		req.From = resp.NextBatch
+	}
+	if _, err := b.client.SendReaction(ctx, roomID, promptID, label); err != nil {
+		log.Warn().Err(err).Msg("Failed to add outcome reaction")
 	}
 }
 

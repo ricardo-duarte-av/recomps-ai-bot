@@ -43,7 +43,7 @@ For **add**, the bot fetches the README, asks the model which game, original sys
 
 > Adding https://github.com/owner/repo , a recomp of **Game** from System, for Windows, Linux and macOS.
 
-with `OK` and `Cancel` reactions. Nothing is written until **a moderator** reacts with `OK` (✅/👍 also work); `Cancel` (❌/👎) discards it. **Remove** works the same way. Prompts expire after 24 hours.
+with `OK` and `Cancel` reactions. Nothing is written until **a moderator** reacts with `OK` (✅/👍 also work); `Cancel` (❌/👎) discards it. **Remove** works the same way. Prompts expire after 24 hours. Once a moderator answers, the bot redacts all reactions on the prompt and reacts with the outcome instead (e.g. `Added by @mod:example.org`), so it needs permission to redact other users' events (its power level must be at least the room's `redact` level).
 
 **Link detection:** the bot also watches every message in the allowed rooms (including notices from feed bots) for git repository links, such as a GitHub release page. It reduces each link to the main repo and skips repos already in the list (reacting to the message with the repo, e.g. `github.com/owner/repo`, instead). It then reads the README, and if the model says it's a game recomp/decomp/reimpl or a toolkit, the bot replies:
 
