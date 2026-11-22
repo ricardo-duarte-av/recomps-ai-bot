@@ -40,8 +40,9 @@ type Bot struct {
 	ignored      map[id.UserID]bool
 	startTime    time.Time
 
-	createEvents sync.Map // id.RoomID -> *event.Event (m.room.create never changes)
-	detecting    sync.Map // repo URL -> *sync.Mutex held while link detection checks it
+	createEvents sync.Map   // id.RoomID -> *event.Event (m.room.create never changes)
+	detecting    sync.Map   // repo URL -> *sync.Mutex held while link detection checks it
+	pinMu        sync.Mutex // serializes read-modify-write of rooms' pinned events
 }
 
 func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {

@@ -150,6 +150,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 // reaction key isn't readable without decrypting each event.
 func (b *Bot) closePrompt(ctx context.Context, roomID id.RoomID, promptID id.EventID, label string) bool {
 	log := zerolog.Ctx(ctx).With().Stringer("room", roomID).Stringer("prompt", promptID).Logger()
+	b.setPinned(ctx, roomID, promptID, false)
 	req := &mautrix.ReqGetRelations{RelationType: event.RelAnnotation, Limit: 100}
 	for {
 		resp, err := b.client.GetRelations(ctx, roomID, promptID, req)
@@ -205,5 +206,6 @@ func (b *Bot) expireDetected(ctx context.Context) {
 		b.reply(ctx, &event.Event{ID: id.EventID(p.EventID), RoomID: id.RoomID(p.RoomID), Sender: b.userID},
 			fmt.Sprintf("Nobody answered within %s, so I'm dropping this. I'll ask again the next time %s is posted.",
 				formatHours(store.DetectedPendingTTL), p.Entry.RepoURL))
+		b.setPinned(ctx, id.RoomID(p.RoomID), id.EventID(p.EventID), false)
 	}
 }
