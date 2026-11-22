@@ -233,8 +233,8 @@ func (b *Bot) prompt(ctx context.Context, evt *event.Event, action string, entry
 			log.Warn().Err(err).Str("key", key).Msg("Failed to add reaction")
 		}
 	}
-	// Pinning open add prompts makes them easy to find from the room's pinned events.
-	if action == "add" {
+	// Pinning open link-detection prompts makes them easy to find from the room's pinned events.
+	if action == "add" && entry.Detected {
 		b.setPinned(ctx, evt.RoomID, promptID, true)
 	}
 }
