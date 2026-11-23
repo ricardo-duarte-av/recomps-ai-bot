@@ -100,6 +100,33 @@ func pagesToRepo(host string, segs []string) (string, []string, bool) {
 	return "", nil, false
 }
 
+// githubAssetHosts serve files out of a GitHub repository, with the owner and
+// name after a fixed number of leading path segments:
+// https://raw.githubusercontent.com/owner/repo/branch/file is github.com/owner/repo.
+var githubAssetHosts = map[string]int{
+	"raw.githubusercontent.com":   0,
+	"raw.github.com":              0,
+	"codeload.github.com":         0,
+	"media.githubusercontent.com": 1, // /media/owner/repo/...
+	"api.github.com":              1, // /repos/owner/repo/...
+}
+
+// assetToRepo rewrites a link to a file served from a GitHub repository to that
+// repository. ok is false when host isn't a GitHub file host; repo is false when
+// it is one but the link doesn't name a repository (images, avatars, gists...).
+func assetToRepo(host string, segs []string) (newSegs []string, ok, repo bool) {
+	if skip, known := githubAssetHosts[host]; known {
+		if len(segs) < skip+2 {
+			return nil, true, false
+		}
+		return segs[skip : skip+2], true, true
+	}
+	if host == "gist.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
+		return nil, true, false
+	}
+	return nil, false, false
+}
+
 // ParseRepo parses a repository URL. hostType resolves configured hosts
 // (it may be nil); well-known hosts are recognized automatically.
 func ParseRepo(raw string, hostType func(host string) string) (Repo, error) {
@@ -127,6 +154,11 @@ func ParseRepo(raw string, hostType func(host string) string) (Repo, error) {
 	}
 	if forgeHost, repoSegs, ok := pagesToRepo(host, segs); ok {
 		host, segs = forgeHost, repoSegs
+	} else if repoSegs, ok, isRepo := assetToRepo(host, segs); ok {
+		if !isRepo {
+			return Repo{}, ErrNotRepo
+		}
+		host, segs = "github.com", repoSegs
 	}
 	typ := ""
 	if hostType != nil {

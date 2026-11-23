@@ -33,6 +33,11 @@ func TestParseRepo(t *testing.T) {
 		"https://user.github.io/":                         "https://github.com/user/user.github.io",
 		"https://group.gitlab.io/project":                 "https://gitlab.com/group/project",
 		"https://someone.codeberg.page/game/":             "https://codeberg.org/someone/game",
+		// Files served from a GitHub repository map to the repository
+		"https://raw.githubusercontent.com/nxengine/nxengine-evo/master/screenshot.png": "https://github.com/nxengine/nxengine-evo",
+		"https://media.githubusercontent.com/media/owner/repo/main/big.bin":             "https://github.com/owner/repo",
+		"https://codeload.github.com/owner/repo/zip/refs/heads/main":                    "https://github.com/owner/repo",
+		"https://api.github.com/repos/owner/repo/releases":                              "https://github.com/owner/repo",
 	}
 	for in, want := range cases {
 		r, err := ParseRepo(in, hostType)
@@ -40,7 +45,9 @@ func TestParseRepo(t *testing.T) {
 			t.Errorf("ParseRepo(%q) = %q, %v; want %q", in, r.URL(), err, want)
 		}
 	}
-	for _, in := range []string{"https://github.com/onlyowner", "nope", "ftp://x.org/a/b", "https://matrix.to/#/@bot:x"} {
+	for _, in := range []string{"https://github.com/onlyowner", "nope", "ftp://x.org/a/b", "https://matrix.to/#/@bot:x",
+		"https://user-images.githubusercontent.com/123/abc.png", "https://avatars.githubusercontent.com/u/1",
+		"https://gist.github.com/user/0123abcd", "https://raw.githubusercontent.com/owner"} {
 		if r, err := ParseRepo(in, hostType); err == nil {
 			t.Errorf("ParseRepo(%q) should fail, got %q", in, r.URL())
 		}
