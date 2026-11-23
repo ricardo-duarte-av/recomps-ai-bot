@@ -267,20 +267,22 @@ func (b *Bot) stripMention(body string) string {
 // reply sends a markdown message answering evt (as a Matrix reply unless
 // matrix.answer_with_reply is false) and returns its event ID.
 func (b *Bot) reply(ctx context.Context, evt *event.Event, markdown string) id.EventID {
-	return b.send(ctx, evt, markdown, false)
+	return b.send(ctx, evt, markdown, nil)
 }
 
-// send is reply with an optional @room mention.
-func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, mentionRoom bool) id.EventID {
+// send is reply with explicit pings: mentions (may be nil) is merged into the
+// message's m.mentions, which is what decides who gets notified.
+func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, mentions *event.Mentions) id.EventID {
 	content := format.RenderMarkdown(markdown, true, false)
 	if b.cfg.Matrix.ShouldReply() {
 		content.SetReply(evt)
 	}
-	if mentionRoom {
+	if mentions != nil {
 		if content.Mentions == nil {
 			content.Mentions = &event.Mentions{}
 		}
-		content.Mentions.Room = true
+		content.Mentions.Room = content.Mentions.Room || mentions.Room
+		content.Mentions.UserIDs = append(content.Mentions.UserIDs, mentions.UserIDs...)
 	}
 	resp, err := b.client.SendMessageEvent(ctx, evt.RoomID, event.EventMessage, &content)
 	if err != nil {
@@ -293,13 +295,43 @@ func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, menti
 
 // isModerator reports whether userID has at least the configured moderator power level.
 func (b *Bot) isModerator(ctx context.Context, roomID id.RoomID, userID id.UserID) bool {
+	pl, err := b.powerLevels(ctx, roomID)
+	if err != nil {
+		return false
+	}
+	return pl.GetUserLevel(userID) >= b.cfg.Matrix.ModeratorLevel
+}
+
+// roomModerators lists the room's joined members with at least the moderator
+// power level, leaving out the bot itself and ignored users (other bots).
+func (b *Bot) roomModerators(ctx context.Context, roomID id.RoomID) ([]id.UserID, error) {
+	pl, err := b.powerLevels(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	members, err := b.client.JoinedMembers(ctx, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("fetching joined members: %w", err)
+	}
+	var mods []id.UserID
+	for userID := range members.Joined {
+		if userID != b.userID && !b.ignored[userID] && pl.GetUserLevel(userID) >= b.cfg.Matrix.ModeratorLevel {
+			mods = append(mods, userID)
+		}
+	}
+	slices.Sort(mods)
+	return mods, nil
+}
+
+// powerLevels fetches the room's current power levels.
+func (b *Bot) powerLevels(ctx context.Context, roomID id.RoomID) (*event.PowerLevelsEventContent, error) {
 	var pl event.PowerLevelsEventContent
 	if err := b.client.StateEvent(ctx, roomID, event.StatePowerLevels, "", &pl); err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to fetch power levels")
-		return false
+		return nil, err
 	}
 	pl.CreateEvent = b.createEvent(ctx, roomID)
-	return pl.GetUserLevel(userID) >= b.cfg.Matrix.ModeratorLevel
+	return &pl, nil
 }
 
 // createEvent is needed for room v12+, where room creators have unlimited power.

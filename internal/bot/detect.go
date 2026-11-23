@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/oses"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
@@ -157,10 +159,7 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 
 // suggest posts a link-detection add prompt in evt's room.
 func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) {
-	prefix := ""
-	if b.cfg.Detect.ShouldMention() {
-		prefix = "@room "
-	}
+	prefix, mentions := b.suggestionPings(ctx, evt.RoomID)
 	what := fmt.Sprintf("**%s** from %s, for %s", entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
 	if entry.Kind == store.KindToolkit {
 		what = fmt.Sprintf("for **%s** games, running on %s", entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
@@ -168,7 +167,32 @@ func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) 
 	msg := fmt.Sprintf("%sDetected a %s not in the DB: %s , %s. Would you like to add it to the DB?\n\n"+
 		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, I'll drop it and ask again the next time it's posted.",
 		prefix, entry.Kind, entry.RepoURL, what, reactOK, reactCancel, formatHours(store.DetectedPendingTTL))
-	b.prompt(ctx, evt, "add", entry, msg, b.cfg.Detect.ShouldMention())
+	b.prompt(ctx, evt, "add", entry, msg, mentions)
+}
+
+// suggestionPings returns the text to start a suggestion in room with and the
+// matching m.mentions, per detect.mention. Moderators are looked up in room
+// itself each time, so every room pings its own, current moderators.
+func (b *Bot) suggestionPings(ctx context.Context, room id.RoomID) (string, *event.Mentions) {
+	switch b.cfg.Detect.Mention {
+	case config.MentionRoom:
+		return "@room ", &event.Mentions{Room: true}
+	case config.MentionModerators:
+		mods, err := b.roomModerators(ctx, room)
+		if err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to list moderators to ping")
+			return "", nil
+		}
+		if len(mods) == 0 {
+			return "", nil
+		}
+		pills := make([]string, len(mods))
+		for i, m := range mods {
+			pills[i] = mention(m)
+		}
+		return strings.Join(pills, " ") + ": ", &event.Mentions{UserIDs: mods}
+	}
+	return "", nil
 }
 
 func formatHours(d time.Duration) string {

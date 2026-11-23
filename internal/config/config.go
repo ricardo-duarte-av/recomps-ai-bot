@@ -24,15 +24,25 @@ type Config struct {
 type Detect struct {
 	// Enabled defaults to true when unset.
 	Enabled *bool `yaml:"enabled"`
-	// MentionRoom adds an @room ping to suggestions (defaults to true). The bot needs
-	// the room's "notify everyone" power level for the ping to notify anyone.
-	MentionRoom *bool `yaml:"mention_room"`
+	// Mention picks who a suggestion pings: MentionModerators (the default) pings
+	// each member of the suggestion's room with at least the moderator power level,
+	// MentionRoom pings everyone with @room, MentionNone pings nobody.
+	Mention string `yaml:"mention"`
+	// MentionRoomLegacy is the old mention_room option: false still turns pings
+	// off when mention is unset; true is ignored in favor of pinging moderators.
+	MentionRoomLegacy *bool `yaml:"mention_room"`
 	// MaxLinksPerMessage caps how many repos are checked from one message (default 3).
 	MaxLinksPerMessage int `yaml:"max_links_per_message"`
 }
 
-func (d Detect) IsEnabled() bool     { return d.Enabled == nil || *d.Enabled }
-func (d Detect) ShouldMention() bool { return d.MentionRoom == nil || *d.MentionRoom }
+func (d Detect) IsEnabled() bool { return d.Enabled == nil || *d.Enabled }
+
+// Values for Detect.Mention.
+const (
+	MentionModerators = "moderators"
+	MentionRoom       = "room"
+	MentionNone       = "none"
+)
 
 // Web configures the public read-only list page.
 type Web struct {
@@ -115,6 +125,12 @@ func Load(path string) (*Config, error) {
 	if c.OpenAI.Model == "" {
 		c.OpenAI.Model = "gpt-5-mini"
 	}
+	if c.Detect.Mention == "" {
+		c.Detect.Mention = MentionModerators
+		if c.Detect.MentionRoomLegacy != nil && !*c.Detect.MentionRoomLegacy {
+			c.Detect.Mention = MentionNone
+		}
+	}
 	if c.Detect.MaxLinksPerMessage <= 0 {
 		c.Detect.MaxLinksPerMessage = 3
 	}
@@ -146,6 +162,11 @@ func Load(path string) (*Config, error) {
 		if !strings.HasPrefix(u, "@") || !strings.Contains(u, ":") {
 			errs = append(errs, fmt.Errorf("matrix.ignored_users[%d] %q must be a full user ID like @bot:example.org", i, u))
 		}
+	}
+	switch c.Detect.Mention {
+	case MentionModerators, MentionRoom, MentionNone:
+	default:
+		errs = append(errs, fmt.Errorf("detect.mention %q must be moderators, room or none", c.Detect.Mention))
 	}
 	for i, h := range c.Forges.Hosts {
 		if h.Host == "" {

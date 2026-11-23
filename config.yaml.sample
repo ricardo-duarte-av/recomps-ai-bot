@@ -63,9 +63,12 @@ detect:
   # forge, or whose host contains "git"). If a repo isn't in the DB and the model says
   # it's a game recomp/decomp/reimpl or a toolkit, the bot offers to add it; a moderator confirms with OK.
   enabled: true
-  # Ping the room (@room) with each suggestion. The bot needs the room's
-  # "notify everyone" power level (usually 50) for this to actually notify people.
-  mention_room: true
+  # Who each suggestion pings:
+  #   moderators (default): every member of that room with at least matrix.moderator_level,
+  #                         looked up per room each time a suggestion is posted
+  #   room: everyone, with @room (needs the room's "notify everyone" power level)
+  #   none: nobody
+  mention: moderators
   # Maximum number of repository links checked per message.
   max_links_per_message: 3
 

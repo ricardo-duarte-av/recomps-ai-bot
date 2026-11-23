@@ -168,7 +168,7 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 
 	msg := fmt.Sprintf("Adding %s , a %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
 		entry.RepoURL, describe(entry), reactOK, reactCancel)
-	b.prompt(ctx, evt, "add", entry, msg, false)
+	b.prompt(ctx, evt, "add", entry, msg, nil)
 }
 
 func (b *Bot) handleRemove(ctx context.Context, evt *event.Event, text string, intent *llm.Intent) {
@@ -208,13 +208,13 @@ func (b *Bot) handleRemove(ctx context.Context, evt *event.Event, text string, i
 	}
 	msg := fmt.Sprintf("Removing %s from %s for %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
 		entry.RepoURL, oses.JoinDisplay(entry.OSes), subject(entry), reactOK, reactCancel)
-	b.prompt(ctx, evt, "remove", entry, msg, false)
+	b.prompt(ctx, evt, "remove", entry, msg, nil)
 }
 
 // prompt posts a confirmation message, seeds the OK/Cancel reactions and records the pending action.
-func (b *Bot) prompt(ctx context.Context, evt *event.Event, action string, entry store.Entry, msg string, mentionRoom bool) {
+func (b *Bot) prompt(ctx context.Context, evt *event.Event, action string, entry store.Entry, msg string, mentions *event.Mentions) {
 	log := zerolog.Ctx(ctx)
-	promptID := b.send(ctx, evt, msg, mentionRoom)
+	promptID := b.send(ctx, evt, msg, mentions)
 	if promptID == "" {
 		return
 	}
