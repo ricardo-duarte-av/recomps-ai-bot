@@ -19,7 +19,11 @@ Anyone:
 
 Toolkits are left out of searches unless you ask for them; a search that matches some says how many.
 
-Counting questions use the same filters as searches and answer with a number (plus a recomp/decomp/reimpl split); ask for a breakdown "per console", "by platform", "by type" or "per game" to get a ranked list. The model never writes database queries: it only fills in a fixed set of filters (game titles and systems checked against what's actually in the list, a kind, target platforms, count or breakdown), and the bot does the filtering and counting itself, so a message can't make it change or reveal anything else in the database.
+Counting questions use the same filters as searches and answer with a number (plus a recomp/decomp/reimpl split); ask for a breakdown "per console", "by platform", "by type" or "per game" to get a ranked list.
+
+Questions those filters can't express, such as comparisons, exclusions or combinations (`which games have both a recomp and a decomp?`, `what runs on Switch but not Windows?`, `are there more N64 decomps or recomps?`), are answered by letting the model look things up with two read-only tools: a search (filters, per-group counts, up to 50 entries) and a list of distinct values. It can make several lookups, up to 6 rounds, and then writes the answer itself.
+
+**Safety:** the model never writes database queries. Simple questions only fill in a fixed set of filters (game titles and systems are checked against what's actually in the list), and the tools for harder questions only read an in-memory copy of the list entries (the same data the web page shows), with every argument validated. Nothing the model says can change the list or reach the rest of the database (pending prompts, encryption keys). Model-written answers are posted with no pings (any @room or user pill in them notifies nobody), and links that don't point to a repository in the list are removed.
 
 Moderators (power level ≥ `moderator_level`, default 50):
 

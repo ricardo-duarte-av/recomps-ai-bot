@@ -25,6 +25,7 @@ const helpText = "I keep a list of game recomps, decomps and reimplementations, 
 	"- `is there any recomp for Pokemon Emerald?`\n" +
 	"- `which toolkits are there for N64?`\n" +
 	"- `how many decomps are there for PS2?` or `how many entries per console?`\n" +
+	"- `which games have both a recomp and a decomp?`\n" +
 	"- `add this repo to the list https://github.com/owner/repo` (moderators)\n" +
 	"- `remove repo https://github.com/owner/repo from the list` (moderators)\n" +
 	"- `add extra https://github.com/owner/repo` followed by a ``` code block with notes or links (moderators; `remove extra <repo>` clears it)"
@@ -64,6 +65,8 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 		} else {
 			b.reply(ctx, evt, helpText)
 		}
+	case "complex_query":
+		b.handleAsk(ctx, evt, text)
 	default:
 		b.reply(ctx, evt, helpText)
 	}

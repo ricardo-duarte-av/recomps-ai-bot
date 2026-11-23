@@ -33,7 +33,7 @@ func New(apiKey, model, baseURL, reasoningEffort string) *Client {
 
 // Intent is what the user wants, as understood from their message.
 type Intent struct {
-	Intent         string   `json:"intent"` // add | remove | query | unknown
+	Intent         string   `json:"intent"` // add | remove | query | complex_query | unknown
 	RepoURL        string   `json:"repo_url"`
 	Game           string   `json:"game"`
 	OriginalSystem string   `json:"original_system"`
@@ -98,6 +98,7 @@ Classify the message into exactly one intent:
 - "add": the user asks to add a repository to the list.
 - "remove": the user asks to remove a repository from the list.
 - "query": anything that asks about the list: whether a game, series, system, platform or repository is in it, what's available, what runs where. When in doubt and the message names a game, system, platform or repository, it's a query.
+- "complex_query": a question about the list that the query fields below can't express on their own: comparisons ("are there more N64 decomps or recomps?"), set operations and exclusions ("games with both a recomp and a decomp", "what isn't on Windows?", "what runs on both Switch and Linux?"), superlatives that need several lookups, several questions in one message, or open-ended questions about what's in the list. A plain search, count or breakdown with the fields below is a "query", not a "complex_query".
 - "unknown": only messages with nothing to look up (greetings, thanks, "what can you do?", unrelated chat).
 Extract only what the user explicitly states; use "", [] or false for anything not stated. Do not guess.
 - repo_url: the repository URL if present.
@@ -167,7 +168,7 @@ func (c *Client) complete(ctx context.Context, system, user, schemaName string, 
 // names can be resolved to exact stored values in the same call.
 func (c *Client) ParseIntent(ctx context.Context, message string, known []string) (*Intent, error) {
 	schema := objectSchema(map[string]any{
-		"intent":          enumProp("What the user wants", "add", "remove", "query", "unknown"),
+		"intent":          enumProp("What the user wants", "add", "remove", "query", "complex_query", "unknown"),
 		"repo_url":        strProp("Repository URL, or empty"),
 		"game":            strProp("Original game title, or empty"),
 		"original_system": strProp("Original console/platform, or empty"),

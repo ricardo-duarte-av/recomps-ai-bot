@@ -274,9 +274,6 @@ func (b *Bot) reply(ctx context.Context, evt *event.Event, markdown string) id.E
 // message's m.mentions, which is what decides who gets notified.
 func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, mentions *event.Mentions) id.EventID {
 	content := format.RenderMarkdown(markdown, true, false)
-	if b.cfg.Matrix.ShouldReply() {
-		content.SetReply(evt)
-	}
 	if mentions != nil {
 		if content.Mentions == nil {
 			content.Mentions = &event.Mentions{}
@@ -284,7 +281,22 @@ func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, menti
 		content.Mentions.Room = content.Mentions.Room || mentions.Room
 		content.Mentions.UserIDs = append(content.Mentions.UserIDs, mentions.UserIDs...)
 	}
-	resp, err := b.client.SendMessageEvent(ctx, evt.RoomID, event.EventMessage, &content)
+	return b.sendContent(ctx, evt, &content)
+}
+
+// replyNoPings is reply for text the bot didn't write itself (model answers): an
+// empty m.mentions means nobody is notified, whatever pills or @room it contains.
+func (b *Bot) replyNoPings(ctx context.Context, evt *event.Event, markdown string) id.EventID {
+	content := format.RenderMarkdown(markdown, true, false)
+	content.Mentions = &event.Mentions{}
+	return b.sendContent(ctx, evt, &content)
+}
+
+func (b *Bot) sendContent(ctx context.Context, evt *event.Event, content *event.MessageEventContent) id.EventID {
+	if b.cfg.Matrix.ShouldReply() {
+		content.SetReply(evt)
+	}
+	resp, err := b.client.SendMessageEvent(ctx, evt.RoomID, event.EventMessage, content)
 	if err != nil {
 		markFailed(ctx)
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to send reply")
