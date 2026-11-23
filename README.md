@@ -12,9 +12,14 @@ Anyone:
 @recompbot is there any recomp for Pokemon Emerald?
 @recompbot any decomps for N64 games on macOS?
 @recompbot which toolkits are there for PS3?
+@recompbot how many entries support Linux?
+@recompbot how many recomps from PS4?
+@recompbot how many decomps per console?
 ```
 
 Toolkits are left out of searches unless you ask for them; a search that matches some says how many.
+
+Counting questions use the same filters as searches and answer with a number (plus a recomp/decomp/reimpl split); ask for a breakdown "per console", "by platform", "by type" or "per game" to get a ranked list. The model never writes database queries: it only fills in a fixed set of filters (game titles and systems checked against what's actually in the list, a kind, target platforms, count or breakdown), and the bot does the filtering and counting itself, so a message can't make it change or reveal anything else in the database.
 
 Moderators (power level ≥ `moderator_level`, default 50):
 

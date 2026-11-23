@@ -44,7 +44,12 @@ type Intent struct {
 	Titles  []string `json:"titles"`  // exact game titles in the list
 	Systems []string `json:"systems"` // exact original systems in the list
 	ListAll bool     `json:"list_all"`
+	Count   bool     `json:"count"`    // "how many …?"
+	GroupBy string   `json:"group_by"` // breakdown: kind | system | platform | game | ""
 }
+
+// GroupBy values.
+var GroupBys = []string{"kind", "system", "platform", "game"}
 
 // HasFilter reports whether a query narrows the list down in any way.
 func (i *Intent) HasFilter() bool {
@@ -105,7 +110,9 @@ For queries only, you are given the games currently in the list as "Title | Orig
 - titles: the exact titles (the part before " | ", copied character-for-character) of the games the user asks about, never "` + store.ToolkitTitle + `". Account for accents, abbreviations, subtitles, numbering and regional names ("Pokemon" == "Pokémon", "OoT" and "Zelda 64" == "Ocarina of Time"). A series name without a specific entry ("Zelda") matches every entry in the series. [] if the user didn't ask about specific games or none match.
 - systems: the exact original systems (the part after " | ", copied character-for-character) the user asks about, e.g. "N64 decomps" => every spelling of Nintendo 64 in the list. [] if not asked or none match.
 - list_all: true only if the user explicitly asks to see the whole list ("what's in the list?", "list everything").
-For add/remove, leave titles and systems empty and list_all false.
+- count: true if the user asks how many entries match rather than which ones ("how many decomps?", "how many recomps from PS4?", "how many entries support Linux?", "number of N64 games in the list"). Counting questions are queries; put their filters in the fields above as usual ("support Linux" => oses ["linux"], "from PS4" => original_system and systems).
+- group_by: if the user asks for a breakdown or a ranking, what to break the results down by: "kind" (recomps vs decomps vs reimpls), "system" (original console, e.g. "per console", "which system has the most recomps?"), "platform" (target platforms, e.g. "by OS", "which platform is best supported?") or "game" ("which game has the most ports?"); otherwise "".
+For add/remove, leave titles and systems empty, list_all and count false and group_by "".
 ` // osRules appended at runtime
 
 const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary), a decompilation ("decomp", matching or non-matching source reconstruction) or a reimplementation ("reimpl", new code rebuilt from reverse-engineered behaviour and formats) of a video game, or a toolkit used to make them ("toolkit").
@@ -169,6 +176,8 @@ func (c *Client) ParseIntent(ctx context.Context, message string, known []string
 		"titles":          map[string]any{"type": "array", "description": "Query: exact known titles asked about", "items": map[string]any{"type": "string"}},
 		"systems":         map[string]any{"type": "array", "description": "Query: exact known original systems asked about", "items": map[string]any{"type": "string"}},
 		"list_all":        map[string]any{"type": "boolean", "description": "Query: user explicitly asks for the whole list"},
+		"count":           map[string]any{"type": "boolean", "description": "Query: user asks how many entries match"},
+		"group_by":        enumProp("Query: breakdown requested, or empty", append(slices.Clone(GroupBys), "")...),
 	})
 	user := "Message: " + message + "\n\nGames in the list:\n"
 	if len(known) == 0 {

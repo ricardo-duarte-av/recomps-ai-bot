@@ -24,6 +24,7 @@ const (
 const helpText = "I keep a list of game recomps, decomps and reimplementations, and of the toolkits used to make them. Try:\n\n" +
 	"- `is there any recomp for Pokemon Emerald?`\n" +
 	"- `which toolkits are there for N64?`\n" +
+	"- `how many decomps are there for PS2?` or `how many entries per console?`\n" +
 	"- `add this repo to the list https://github.com/owner/repo` (moderators)\n" +
 	"- `remove repo https://github.com/owner/repo from the list` (moderators)\n" +
 	"- `add extra https://github.com/owner/repo` followed by a ``` code block with notes or links (moderators; `remove extra <repo>` clears it)"
@@ -58,7 +59,7 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 	case "query":
 		if repo, ok := b.repoFromIntent(text, intent); ok {
 			b.handleRepoQuery(ctx, evt, repo)
-		} else if intent.HasFilter() || intent.ListAll {
+		} else if intent.HasFilter() || intent.ListAll || intent.Count || intent.GroupBy != "" {
 			b.handleQuery(ctx, evt, intent)
 		} else {
 			b.reply(ctx, evt, helpText)
@@ -322,6 +323,10 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 		entries = filterOSes(entries, intent.OSes)
 	}
 	entries, toolkits := splitToolkits(entries, intent.Kind)
+	if intent.Count || intent.GroupBy != "" {
+		b.reply(ctx, evt, formatCount(entries, toolkits, intent))
+		return
+	}
 	var msg string
 	switch {
 	case len(entries) == 0:
