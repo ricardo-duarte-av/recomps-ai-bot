@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"go.mau.fi/util/dbutil"
+
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/systems"
 	_ "go.mau.fi/util/dbutil/litestream" // registers the sqlite3-fk-wal driver
 )
 
@@ -141,7 +143,43 @@ func Open(path string) (*Store, error) {
 	if err := s.migrateKindCheck(ctx); err != nil {
 		return nil, fmt.Errorf("migrating recomps kind constraint: %w", err)
 	}
+	if err := s.normalizeSystems(ctx); err != nil {
+		return nil, fmt.Errorf("normalizing original systems: %w", err)
+	}
 	return s, nil
+}
+
+// normalizeSystems rewrites stored original systems to their canonical spelling,
+// so entries saved before a spelling was known (or before normalization existed)
+// join the rest of their system.
+func (s *Store) normalizeSystems(ctx context.Context) error {
+	rows, err := s.DB.Query(ctx, `SELECT DISTINCT original_system FROM recomps`)
+	if err != nil {
+		return err
+	}
+	renames := map[string]string{}
+	for rows.Next() {
+		var sys string
+		if err := rows.Scan(&sys); err != nil {
+			rows.Close()
+			return err
+		}
+		if n := systems.Normalize(sys); n != sys {
+			renames[sys] = n
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(renames) == 0 {
+		return err
+	}
+	return s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		for from, to := range renames {
+			if _, err := s.DB.Exec(ctx, `UPDATE recomps SET original_system = $1 WHERE original_system = $2`, to, from); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // migrateKindCheck rebuilds the recomps table of databases created before one of
@@ -180,6 +218,7 @@ func (s *Store) Close() error { return s.DB.Close() }
 // Add inserts one row per OS. Existing (repo, os) rows are updated.
 func (s *Store) Add(ctx context.Context, e Entry, addedBy string) error {
 	now := time.Now().Unix()
+	e.OriginalSystem = systems.Normalize(e.OriginalSystem)
 	return s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
 		for _, os := range e.OSes {
 			_, err := s.DB.Exec(ctx, `

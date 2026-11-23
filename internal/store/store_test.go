@@ -112,3 +112,30 @@ func TestExtra(t *testing.T) {
 		t.Fatalf("not cleared: %q", got.Extra)
 	}
 }
+
+func TestOriginalSystemsAreNormalized(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(ctx, Entry{RepoURL: "https://a", Game: "A", OriginalSystem: "PS5", Kind: "recomp", OSes: []string{"windows"}}, "@mod:x"); err != nil {
+		t.Fatal(err)
+	}
+	// A row stored before normalization existed is fixed when the store opens.
+	if _, err := s.DB.Exec(ctx, `INSERT INTO recomps (repo_url, game, original_system, kind, os, added_by, added_at)
+		VALUES ('https://b', 'B', 'Switch2', 'recomp', 'linux', '@mod:x', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for url, want := range map[string]string{"https://a": "PlayStation 5", "https://b": "Nintendo Switch 2"} {
+		if e, err := s.GetByRepo(ctx, url); err != nil || e == nil || e.OriginalSystem != want {
+			t.Errorf("GetByRepo(%s) = %+v, %v; want system %q", url, e, err, want)
+		}
+	}
+}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/oses"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/systems"
 )
 
 type Client struct {
@@ -103,7 +104,7 @@ Classify the message into exactly one intent:
 Extract only what the user explicitly states; use "", [] or false for anything not stated. Do not guess.
 - repo_url: the repository URL if present.
 - game: the original game's title, spelled out in full when the user uses a well-known abbreviation (e.g. "OoT" => "The Legend of Zelda: Ocarina of Time", "SM64" => "Super Mario 64").
-- original_system: the console/platform the game originally ran on, if stated (e.g. "Nintendo 64", "Game Boy Advance", "PlayStation 2").
+- original_system: the console/platform the game originally ran on, if stated (e.g. "Nintendo 64", "Game Boy Advance", "PlayStation 2"), using the matching name from the canonical original systems below when one fits.
 - kind: "recomp", "decomp" or "reimpl" (reimplementation) if stated; "toolkit" if the user asks about or adds tools for making recomps/decomps rather than games (recompilers, toolkits, frameworks, runtimes, e.g. "which N64 recompilers are there?", "tools to recompile PS3 games"); otherwise "".
 - oses: target platforms (operating systems or consoles) the user mentions (for add: platforms the port runs on; for query/remove: platforms the user wants to play on).
 Distinguish the original system (where the game came FROM) from target platforms (where the port RUNS): "a SNES recomp for 3DS" => original_system "Super Nintendo Entertainment System", oses ["3ds"]. In queries, "games from N64" or "N64 recomps" means original_system; "can I play X on my 3DS/Vita/Steam Deck" means oses.
@@ -119,12 +120,14 @@ For add/remove, leave titles and systems empty, list_all and count false and gro
 const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary), a decompilation ("decomp", matching or non-matching source reconstruction) or a reimplementation ("reimpl", new code rebuilt from reverse-engineered behaviour and formats) of a video game, or a toolkit used to make them ("toolkit").
 Extract:
 - game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask"). "" for a toolkit.
-- original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"); for a toolkit, the console whose games it works on. Use full common names.
+- original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"); for a toolkit, the console whose games it works on. Use the matching name from the canonical original systems below, copied exactly; only if none fits, use the full common name. Nintendo Switch 2 (including "Nintendo Switch 2 Edition" releases) is "Nintendo Switch 2", not "Nintendo Switch".
 - kind: "recomp" if it is a recompilation/port produced by recompiling the original binary, "decomp" if it is a decompilation project, "reimpl" if it is a reimplementation: the game rebuilt as new code from reverse-engineered behaviour and file formats, without decompiling or recompiling the original binary (e.g. OpenMW, OpenRCT2); "toolkit" if it is not a port of one game but a static recompiler, decompilation tooling or runtime for making recomps/decomps of many games of one console (e.g. N64Recomp, ps3recomp, PS2Recomp, decomp-toolkit).
 - oses: platforms (operating systems or consoles/handhelds) on which the resulting game (for a toolkit: the toolkit itself) runs natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
 If the README does not say, use "" or [].
 - in_scope: true only if this repository is a recompilation, decompilation, reimplementation or source port of one specific video game, or a toolkit as described above. False for emulators, general-purpose libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
 ` // osRules appended at runtime
+
+var systemRules = "\nCanonical original systems: " + strings.Join(systems.Canonical, "; ") + "."
 
 func (c *Client) complete(ctx context.Context, system, user, schemaName string, schema map[string]any, out any) error {
 	params := openai.ChatCompletionNewParams{
@@ -187,10 +190,11 @@ func (c *Client) ParseIntent(ctx context.Context, message string, known []string
 		user += strings.Join(known, "\n")
 	}
 	var out Intent
-	if err := c.complete(ctx, intentPrompt+osRules, user, "intent", schema, &out); err != nil {
+	if err := c.complete(ctx, intentPrompt+osRules+systemRules, user, "intent", schema, &out); err != nil {
 		return nil, err
 	}
 	out.OSes, _ = oses.NormalizeList(out.OSes)
+	out.OriginalSystem = systems.Normalize(out.OriginalSystem)
 	out.Titles, out.Systems = resolveKnown(known, out.Titles, out.Systems)
 	return &out, nil
 }
@@ -227,10 +231,11 @@ func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) 
 	})
 	var out RepoInfo
 	user := "Repository: " + repoURL + "\n\nREADME:\n" + readme
-	if err := c.complete(ctx, readmePrompt+osRules, user, "repo_info", schema, &out); err != nil {
+	if err := c.complete(ctx, readmePrompt+osRules+systemRules, user, "repo_info", schema, &out); err != nil {
 		return nil, err
 	}
 	out.OSes, _ = oses.NormalizeList(out.OSes)
+	out.OriginalSystem = systems.Normalize(out.OriginalSystem)
 	if out.Kind == store.KindToolkit {
 		out.Game = ""
 	}
