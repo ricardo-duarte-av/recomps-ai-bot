@@ -54,7 +54,7 @@ func matrixToURL(userID id.UserID) string {
 }
 
 func escapeLinkText(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `*`, `\*`, `_`, `\_`, "`", "\\`").Replace(s)
+	return strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `(`, `\(`, `)`, `\)`, `*`, `\*`, `_`, `\_`, "`", "\\`", `<`, `\<`, `>`, `\>`).Replace(s)
 }
 
 // userDisplayName is userID's display name in roomID, falling back to their global

@@ -159,24 +159,28 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 
 // suggest posts a link-detection add prompt in evt's room.
 func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) {
-	prefix, mentions := b.suggestionPings(ctx, evt.RoomID)
+	pings, mentions := b.suggestionPings(ctx, evt.RoomID)
 	what := fmt.Sprintf("**%s** from %s, for %s", entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
 	if entry.Kind == store.KindToolkit {
 		what = fmt.Sprintf("for **%s** games, running on %s", entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
 	}
-	msg := fmt.Sprintf("%sDetected a %s not in the DB: %s , %s. Would you like to add it to the DB?\n\n"+
+	msg := fmt.Sprintf("Detected a %s not in the DB: %s , %s. Would you like to add it to the DB?\n\n"+
 		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, I'll drop it and ask again the next time it's posted.",
-		prefix, entry.Kind, entry.RepoURL, what, reactOK, reactCancel, formatHours(store.DetectedPendingTTL))
+		entry.Kind, entry.RepoURL, what, reactOK, reactCancel, formatHours(store.DetectedPendingTTL))
+	if pings != "" {
+		msg += "\n\nPinging " + pings
+	}
 	b.prompt(ctx, evt, "add", entry, msg, mentions)
 }
 
-// suggestionPings returns the text to start a suggestion in room with and the
-// matching m.mentions, per detect.mention. Moderators are looked up in room
-// itself each time, so every room pings its own, current moderators.
+// suggestionPings returns who a suggestion in room pings, as markdown for its last
+// line, and the matching m.mentions, per detect.mention. Moderators are looked up
+// in room itself each time, so every room pings its own, current moderators, and
+// shown by their display name in that room.
 func (b *Bot) suggestionPings(ctx context.Context, room id.RoomID) (string, *event.Mentions) {
 	switch b.cfg.Detect.Mention {
 	case config.MentionRoom:
-		return "@room ", &event.Mentions{Room: true}
+		return "@room", &event.Mentions{Room: true}
 	case config.MentionModerators:
 		mods, err := b.roomModerators(ctx, room)
 		if err != nil {
@@ -188,11 +192,27 @@ func (b *Bot) suggestionPings(ctx context.Context, room id.RoomID) (string, *eve
 		}
 		pills := make([]string, len(mods))
 		for i, m := range mods {
-			pills[i] = mention(m)
+			pills[i] = namedMention(m, b.userDisplayName(ctx, room, m))
 		}
-		return strings.Join(pills, " ") + ": ", &event.Mentions{UserIDs: mods}
+		return strings.Join(pills, " "), &event.Mentions{UserIDs: mods}
 	}
 	return "", nil
+}
+
+// maxPillName caps a display name shown in a pill (in runes).
+const maxPillName = 64
+
+// namedMention is a markdown user pill showing name, e.g.
+// [Some Mod](https://matrix.to/#/%40mod%3Aexample.org).
+func namedMention(userID id.UserID, name string) string {
+	name = strings.Join(strings.Fields(name), " ") // no newlines or runs of spaces
+	if r := []rune(name); len(r) > maxPillName {
+		name = string(r[:maxPillName]) + "…"
+	}
+	if name == "" {
+		name = userID.String()
+	}
+	return fmt.Sprintf("[%s](%s)", escapeLinkText(name), matrixToURL(userID))
 }
 
 func formatHours(d time.Duration) string {

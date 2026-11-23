@@ -279,7 +279,12 @@ func (b *Bot) send(ctx context.Context, evt *event.Event, markdown string, menti
 			content.Mentions = &event.Mentions{}
 		}
 		content.Mentions.Room = content.Mentions.Room || mentions.Room
-		content.Mentions.UserIDs = append(content.Mentions.UserIDs, mentions.UserIDs...)
+		// Pills in the text are already parsed into m.mentions; don't list them twice.
+		for _, u := range mentions.UserIDs {
+			if !slices.Contains(content.Mentions.UserIDs, u) {
+				content.Mentions.UserIDs = append(content.Mentions.UserIDs, u)
+			}
+		}
 	}
 	return b.sendContent(ctx, evt, &content)
 }
