@@ -431,18 +431,29 @@ func titlesOfEntries(entries []store.Entry) []string {
 	return out
 }
 
+// formatEntries lists entries under one heading per game and system, in the
+// order each heading first appears. Entries arrive sorted by game and URL, so
+// one game's systems interleave and must be regrouped here; otherwise a
+// heading would repeat and read as if it described the line before it.
 func formatEntries(entries []store.Entry) string {
-	var sb strings.Builder
-	lastHeading := ""
+	var order []string
+	groups := map[string][]store.Entry{}
 	for _, e := range entries {
-		if h := heading(e); h != lastHeading {
-			if lastHeading != "" {
-				sb.WriteString("\n")
-			}
-			sb.WriteString(h + "\n")
-			lastHeading = h
+		h := heading(e)
+		if _, ok := groups[h]; !ok {
+			order = append(order, h)
 		}
-		fmt.Fprintf(&sb, "- %s — %s — %s\n", e.Kind, oses.JoinDisplay(sortOSes(e.OSes)), e.RepoURL)
+		groups[h] = append(groups[h], e)
+	}
+	var sb strings.Builder
+	for i, h := range order {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(h + "\n")
+		for _, e := range groups[h] {
+			fmt.Fprintf(&sb, "- %s — %s — %s\n", e.Kind, oses.JoinDisplay(sortOSes(e.OSes)), e.RepoURL)
+		}
 	}
 	return sb.String()
 }

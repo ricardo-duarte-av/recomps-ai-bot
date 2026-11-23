@@ -114,3 +114,18 @@ c
 		t.Fatal("expected no block")
 	}
 }
+
+func TestFormatEntriesGroupsInterleavedSystems(t *testing.T) {
+	game := "Ocarina of Time"
+	entries := []store.Entry{
+		{RepoURL: "https://a", Game: game, OriginalSystem: "Nintendo Switch 2", Kind: "recomp", OSes: []string{"linux"}},
+		{RepoURL: "https://b", Game: game, OriginalSystem: "Nintendo 64", Kind: "decomp", OSes: []string{"linux"}},
+		{RepoURL: "https://c", Game: game, OriginalSystem: "Nintendo Switch 2", Kind: "recomp", OSes: []string{"linux"}},
+	}
+	got := formatEntries(entries)
+	want := "**Ocarina of Time** (Nintendo Switch 2)\n- recomp — Linux — https://a\n- recomp — Linux — https://c\n\n" +
+		"**Ocarina of Time** (Nintendo 64)\n- decomp — Linux — https://b\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
