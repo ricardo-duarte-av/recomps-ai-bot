@@ -238,7 +238,9 @@ func (c *Client) PlatformURL(ctx context.Context, system string) (string, error)
 
 // GameURL returns the IGDB page of game as released on system, or "" if no
 // IGDB game matches well enough. A title with a parenthetical, like
-// "Serious Sam Classic (The First Encounter)", is retried without it.
+// "Serious Sam Classic (The First Encounter)", is retried without it, and one
+// naming several games ("Pokémon Scarlet & Violet", "Gears of War; Gears of
+// War 2") is retried with the first.
 func (c *Client) GameURL(ctx context.Context, game, system string) (string, error) {
 	game = strings.TrimSpace(game)
 	if game == "" {
@@ -249,7 +251,15 @@ func (c *Client) GameURL(ctx context.Context, game, system string) (string, erro
 		return link, err
 	}
 	if before, _, ok := strings.Cut(game, "("); ok && strings.TrimSpace(before) != "" {
-		return c.gameURL(ctx, strings.TrimSpace(before), system)
+		game = strings.TrimSpace(before)
+		if link, err := c.gameURL(ctx, game, system); link != "" || err != nil {
+			return link, err
+		}
+	}
+	for _, sep := range []string{";", " / ", " & ", " and "} {
+		if first, _, ok := strings.Cut(game, sep); ok && strings.TrimSpace(first) != "" {
+			return c.gameURL(ctx, strings.TrimSpace(first), system)
+		}
 	}
 	return "", nil
 }
@@ -340,4 +350,126 @@ func preferred(a, b *Game) bool {
 		return a.TotalRatingCount > b.TotalRatingCount
 	}
 	return a.ID < b.ID
+}
+
+// Image is a picture of a game or platform, ready to post.
+type Image struct {
+	Data     []byte
+	MimeType string
+	// FileName is e.g. "medievil-cover.jpg".
+	FileName string
+}
+
+type imageRef struct {
+	ImageID string `json:"image_id"`
+}
+
+// imageSizes are the IGDB image sizes picked for each kind of picture: small
+// enough for a chat message, big enough to recognize the game.
+const (
+	sizeCover      = "t_cover_big"      // 264x374
+	sizeScreenshot = "t_screenshot_med" // 569x320
+	sizeLogo       = "t_logo_med"       // 284x160
+	imageBaseURL   = "https://images.igdb.com/igdb/image/upload/"
+	maxImageBytes  = 5 << 20
+)
+
+// ImageURL picks the best picture for an IGDB game or platform page (as
+// returned by GameURL or PlatformURL): for a game its cover, else the cover of
+// the game it's a version or part of, else official artwork, else a
+// screenshot; for a platform its logo. It returns "" when there's none.
+func (c *Client) ImageURL(ctx context.Context, pageURL string) (string, error) {
+	u, err := url.Parse(pageURL)
+	if err != nil {
+		return "", nil
+	}
+	kind, slug, ok := strings.Cut(strings.Trim(u.Path, "/"), "/")
+	if !ok || slug == "" || strings.Contains(slug, "/") {
+		return "", nil
+	}
+	switch kind {
+	case "games":
+		var games []struct {
+			Cover         *imageRef  `json:"cover"`
+			Artworks      []imageRef `json:"artworks"`
+			Screenshots   []imageRef `json:"screenshots"`
+			VersionParent *struct {
+				Cover *imageRef `json:"cover"`
+			} `json:"version_parent"`
+			ParentGame *struct {
+				Cover *imageRef `json:"cover"`
+			} `json:"parent_game"`
+		}
+		q := fmt.Sprintf(`fields cover.image_id,artworks.image_id,screenshots.image_id,version_parent.cover.image_id,parent_game.cover.image_id; where slug = "%s"; limit 1;`, escape(slug))
+		if err := c.query(ctx, "games", q, &games); err != nil || len(games) == 0 {
+			return "", err
+		}
+		g := games[0]
+		switch {
+		case g.Cover != nil && g.Cover.ImageID != "":
+			return imageLink(sizeCover, g.Cover.ImageID, "jpg"), nil
+		case g.VersionParent != nil && g.VersionParent.Cover != nil && g.VersionParent.Cover.ImageID != "":
+			return imageLink(sizeCover, g.VersionParent.Cover.ImageID, "jpg"), nil
+		case g.ParentGame != nil && g.ParentGame.Cover != nil && g.ParentGame.Cover.ImageID != "":
+			return imageLink(sizeCover, g.ParentGame.Cover.ImageID, "jpg"), nil
+		case len(g.Artworks) > 0 && g.Artworks[0].ImageID != "":
+			return imageLink(sizeScreenshot, g.Artworks[0].ImageID, "jpg"), nil
+		case len(g.Screenshots) > 0 && g.Screenshots[0].ImageID != "":
+			return imageLink(sizeScreenshot, g.Screenshots[0].ImageID, "jpg"), nil
+		}
+	case "platforms":
+		var plats []struct {
+			Logo *imageRef `json:"platform_logo"`
+		}
+		q := fmt.Sprintf(`fields platform_logo.image_id; where slug = "%s"; limit 1;`, escape(slug))
+		if err := c.query(ctx, "platforms", q, &plats); err != nil || len(plats) == 0 {
+			return "", err
+		}
+		if l := plats[0].Logo; l != nil && l.ImageID != "" {
+			return imageLink(sizeLogo, l.ImageID, "png"), nil // logos often have transparency
+		}
+	}
+	return "", nil
+}
+
+func imageLink(size, imageID, ext string) string {
+	return imageBaseURL + size + "/" + url.PathEscape(imageID) + "." + ext
+}
+
+// Image downloads the best picture for an IGDB game or platform page (see
+// ImageURL). It returns nil when there's no picture.
+func (c *Client) Image(ctx context.Context, pageURL string) (*Image, error) {
+	link, err := c.ImageURL(ctx, pageURL)
+	if err != nil || link == "" {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloading IGDB image: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("downloading IGDB image %s: %s", link, resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("downloading IGDB image: %w", err)
+	}
+	if len(data) > maxImageBytes {
+		return nil, fmt.Errorf("IGDB image %s is over %d bytes", link, maxImageBytes)
+	}
+	mime := http.DetectContentType(data)
+	if !strings.HasPrefix(mime, "image/") {
+		return nil, fmt.Errorf("IGDB image %s is %s, not an image", link, mime)
+	}
+	// IGDB numbers repeated slugs ("medievil--1"); the file name doesn't need that.
+	slug := pageURL[strings.LastIndex(strings.TrimRight(pageURL, "/"), "/")+1:]
+	if base, _, ok := strings.Cut(slug, "--"); ok && base != "" {
+		slug = base
+	}
+	return &Image{Data: data, MimeType: mime, FileName: slug + link[strings.LastIndex(link, "."):]}, nil
 }

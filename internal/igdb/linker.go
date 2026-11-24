@@ -121,3 +121,12 @@ func (l *Linker) sync(ctx context.Context) {
 		}
 	}
 }
+
+// Image downloads the picture for an IGDB game or platform page; see Client.Image.
+// It returns nil when there's none or IGDB isn't configured.
+func (l *Linker) Image(ctx context.Context, pageURL string) (*Image, error) {
+	if l == nil || pageURL == "" {
+		return nil, nil
+	}
+	return l.client.Image(ctx, pageURL)
+}

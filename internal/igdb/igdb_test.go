@@ -119,6 +119,8 @@ func TestGameURL(t *testing.T) {
 			}
 		case strings.Contains(q, `search "Serious Sam Classic"`):
 			return []Game{{Name: "Serious Sam Classic", Slug: "serious-sam-classic"}}
+		case strings.Contains(q, `search "Pokémon Scarlet"`):
+			return []Game{{Name: "Pokémon Scarlet", Slug: "pokemon-scarlet"}}
 		case strings.Contains(q, `search "Unknown Game"`):
 			return []Game{{Name: "Unknown Game Deluxe", Slug: "ugd"}}
 		}
@@ -130,6 +132,7 @@ func TestGameURL(t *testing.T) {
 		{"Super Mario 3D World", "Nintendo Switch", "https://www.igdb.com/games/super-mario-3d-world-plus-bowsers-fury"},
 		{"Prototype", "Windows", "https://www.igdb.com/games/prototype"},
 		{"Serious Sam Classic (The First Encounter / The Second Encounter)", "Amiga", "https://www.igdb.com/games/serious-sam-classic"},
+		{"Pokémon Scarlet & Violet", "Nintendo Switch", "https://www.igdb.com/games/pokemon-scarlet"},
 		// Unknown system: only an exact title is accepted.
 		{"Unknown Game", "Amiga", ""},
 	} {
@@ -184,4 +187,46 @@ func TestLinkerCaches(t *testing.T) {
 		t.Error("nil linker returned links")
 	}
 	nilLinker.Kick()
+}
+
+func TestImageURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		q := string(body)
+		switch {
+		case strings.Contains(q, `slug = "with-cover"`):
+			w.Write([]byte(`[{"cover":{"image_id":"co1"},"screenshots":[{"image_id":"sc1"}]}]`))
+		case strings.Contains(q, `slug = "edition"`):
+			w.Write([]byte(`[{"version_parent":{"cover":{"image_id":"co2"}},"screenshots":[{"image_id":"sc2"}]}]`))
+		case strings.Contains(q, `slug = "art-only"`):
+			w.Write([]byte(`[{"artworks":[{"image_id":"ar3"}],"screenshots":[{"image_id":"sc3"}]}]`))
+		case strings.Contains(q, `slug = "shots-only"`):
+			w.Write([]byte(`[{"screenshots":[{"image_id":"sc4"}]}]`))
+		case strings.Contains(q, `slug = "ps2"`):
+			w.Write([]byte(`[{"platform_logo":{"image_id":"pl5"}}]`))
+		default:
+			w.Write([]byte(`[{}]`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := New("id", "secret")
+	c.apiURL, c.tokenURL = srv.URL+"/v4/", srv.URL+"/token"
+	for page, want := range map[string]string{
+		"https://www.igdb.com/games/with-cover":   "https://images.igdb.com/igdb/image/upload/t_cover_big/co1.jpg",
+		"https://www.igdb.com/games/edition":      "https://images.igdb.com/igdb/image/upload/t_cover_big/co2.jpg",
+		"https://www.igdb.com/games/art-only":     "https://images.igdb.com/igdb/image/upload/t_screenshot_med/ar3.jpg",
+		"https://www.igdb.com/games/shots-only":   "https://images.igdb.com/igdb/image/upload/t_screenshot_med/sc4.jpg",
+		"https://www.igdb.com/games/nothing":      "",
+		"https://www.igdb.com/platforms/ps2":      "https://images.igdb.com/igdb/image/upload/t_logo_med/pl5.png",
+		"https://www.igdb.com/something/else/too": "",
+	} {
+		got, err := c.ImageURL(context.Background(), page)
+		if err != nil || got != want {
+			t.Errorf("ImageURL(%s) = %q, %v; want %q", page, got, err, want)
+		}
+	}
 }

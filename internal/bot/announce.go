@@ -1,13 +1,19 @@
 package bot
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	_ "image/jpeg" // decode IGDB image sizes
+	_ "image/png"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
@@ -102,9 +108,70 @@ func (b *Bot) announce(ctx context.Context, e store.Entry, roomID id.RoomID, by 
 	if b.announceRoom == "" {
 		return
 	}
+	log := zerolog.Ctx(ctx)
 	gameURL, systemURL := b.igdbLinks(ctx, e)
 	content := format.RenderMarkdown(announcement(e, gameURL, systemURL, b.userDisplayName(ctx, roomID, by), by), true, false)
-	if _, err := b.client.SendMessageEvent(ctx, b.announceRoom, event.EventMessage, &content); err != nil {
-		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to post announcement")
+	// Toolkits get their system's logo; games their cover or a screenshot.
+	page := gameURL
+	if e.Kind == store.KindToolkit {
+		page = systemURL
 	}
+	if withImage, err := b.withIGDBImage(ctx, content, page); err != nil {
+		log.Warn().Err(err).Str("page", page).Msg("Failed to attach IGDB image to announcement; posting text only")
+	} else if withImage != nil {
+		content = *withImage
+	}
+	if _, err := b.client.SendMessageEvent(ctx, b.announceRoom, event.EventMessage, &content); err != nil {
+		log.Warn().Err(err).Msg("Failed to post announcement")
+	}
+}
+
+// withIGDBImage turns a text message into an image of the IGDB page's game or
+// platform with the text as its caption. It returns nil when there's no image.
+func (b *Bot) withIGDBImage(ctx context.Context, caption event.MessageEventContent, page string) (*event.MessageEventContent, error) {
+	if b.igdb == nil || page == "" {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	img, err := b.igdb.Image(ctx, page)
+	if err != nil || img == nil {
+		return nil, err
+	}
+	content := caption
+	content.MsgType = event.MsgImage
+	content.FileName = img.FileName
+	content.Info = &event.FileInfo{MimeType: img.MimeType, Size: len(img.Data)}
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(img.Data)); err == nil {
+		content.Info.Width, content.Info.Height = cfg.Width, cfg.Height
+	}
+
+	data, mime := img.Data, img.MimeType
+	var file *attachment.EncryptedFile
+	if b.isEncrypted(ctx, b.announceRoom) {
+		file = attachment.NewEncryptedFile()
+		data = file.Encrypt(data)
+		mime = "application/octet-stream"
+	}
+	resp, err := b.client.UploadMedia(ctx, mautrix.ReqUploadMedia{ContentBytes: data, ContentType: mime, FileName: img.FileName})
+	if err != nil {
+		return nil, fmt.Errorf("uploading image: %w", err)
+	}
+	if file != nil {
+		content.File = &event.EncryptedFileInfo{EncryptedFile: *file, URL: resp.ContentURI.CUString()}
+	} else {
+		content.URL = resp.ContentURI.CUString()
+	}
+	return &content, nil
+}
+
+// isEncrypted reports whether room has encryption enabled.
+func (b *Bot) isEncrypted(ctx context.Context, room id.RoomID) bool {
+	if b.client.StateStore != nil {
+		if enc, err := b.client.StateStore.IsEncrypted(ctx, room); err == nil && enc {
+			return true
+		}
+	}
+	var enc event.EncryptionEventContent
+	return b.client.StateEvent(ctx, room, event.StateEncryption, "", &enc) == nil && enc.Algorithm != ""
 }
