@@ -83,7 +83,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 	// "Added by @mod:server". The message is only sent where that reaction can't be.
 	closeAll := func(verb, msg, othersMsg string) {
 		label := fmt.Sprintf("%s by %s", verb, evt.Sender)
-		if !b.closePrompt(ctx, evt.RoomID, promptID, label) {
+		if !b.closePrompt(ctx, evt.RoomID, promptID, label, evt.ID) {
 			b.reply(ctx, target, msg)
 		}
 		for _, o := range others {
@@ -143,36 +143,84 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 	}
 }
 
+// closePromptRecheck is how long after closing a prompt its reactions are listed
+// again, to catch ones the server hadn't indexed yet the first time.
+var closePromptRecheck = 3 * time.Second
+
 // closePrompt redacts every reaction on an answered prompt (the bot's own OK/Cancel
 // and everyone's votes) and reacts with label instead, so the prompt shows its outcome
-// and can't be mistaken for still open. It reports whether the label reaction was sent. Needs the bot to be allowed to redact others'
-// events. All annotations are redacted, not just OK/Cancel ones: in encrypted rooms the
-// reaction key isn't readable without decrypting each event.
-func (b *Bot) closePrompt(ctx context.Context, roomID id.RoomID, promptID id.EventID, label string) bool {
+// and can't be mistaken for still open. It reports whether the label reaction was sent.
+// Needs the bot to be allowed to redact others' events. All annotations are redacted,
+// not just OK/Cancel ones: in encrypted rooms the reaction key isn't readable without
+// decrypting each event.
+//
+// extra are reactions known to be on the prompt (the answering one), redacted even if
+// the server's relations listing doesn't include them yet: it can lag behind sync, which
+// would leave the moderator's own reaction behind. The listing is also redone after
+// closePromptRecheck for the same reason.
+func (b *Bot) closePrompt(ctx context.Context, roomID id.RoomID, promptID id.EventID, label string, extra ...id.EventID) bool {
 	log := zerolog.Ctx(ctx).With().Stringer("room", roomID).Stringer("prompt", promptID).Logger()
+	if v, ok := b.promptSetup.Load(promptID); ok {
+		select {
+		case <-v.(chan struct{}):
+		case <-ctx.Done():
+			log.Warn().Msg("Gave up waiting for the prompt's reactions and pin")
+		}
+	}
 	b.setPinned(ctx, roomID, promptID, false)
+	redacted := map[id.EventID]bool{}
+	redact := func(ids ...id.EventID) {
+		for _, r := range ids {
+			if redacted[r] {
+				continue
+			}
+			redacted[r] = true
+			if _, err := b.client.RedactEvent(ctx, roomID, r); err != nil {
+				log.Warn().Err(err).Stringer("reaction", r).Msg("Failed to redact reaction")
+			}
+		}
+	}
+	redact(extra...)
+	redact(b.promptReactions(ctx, roomID, promptID)...)
+
+	resp, err := b.client.SendReaction(ctx, roomID, promptID, label)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to add outcome reaction")
+	} else {
+		redacted[resp.EventID] = true // keep the outcome
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		defer cancel()
+		select {
+		case <-time.After(closePromptRecheck):
+		case <-ctx.Done():
+			return
+		}
+		redact(b.promptReactions(ctx, roomID, promptID)...)
+	}()
+	return err == nil
+}
+
+// promptReactions lists the IDs of all annotations on promptID.
+func (b *Bot) promptReactions(ctx context.Context, roomID id.RoomID, promptID id.EventID) []id.EventID {
+	var out []id.EventID
 	req := &mautrix.ReqGetRelations{RelationType: event.RelAnnotation, Limit: 100}
 	for {
 		resp, err := b.client.GetRelations(ctx, roomID, promptID, req)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to list the prompt's reactions")
-			break
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("room", roomID).Stringer("prompt", promptID).
+				Msg("Failed to list the prompt's reactions")
+			return out
 		}
 		for _, r := range resp.Chunk {
-			if _, err := b.client.RedactEvent(ctx, roomID, r.ID); err != nil {
-				log.Warn().Err(err).Stringer("reaction", r.ID).Msg("Failed to redact reaction")
-			}
+			out = append(out, r.ID)
 		}
 		if resp.NextBatch == "" {
-			break
+			return out
 		}
 		req.From = resp.NextBatch
 	}
-	if _, err := b.client.SendReaction(ctx, roomID, promptID, label); err != nil {
-		log.Warn().Err(err).Msg("Failed to add outcome reaction")
-		return false
-	}
-	return true
 }
 
 // expireLoop closes link-detection prompts nobody answered in time, in every room

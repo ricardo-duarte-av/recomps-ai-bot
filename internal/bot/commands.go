@@ -222,6 +222,16 @@ func (b *Bot) prompt(ctx context.Context, evt *event.Event, action string, entry
 	if promptID == "" {
 		return
 	}
+	// A moderator may answer (here, or in another room asking about the same repo)
+	// while the reactions and pin below are still being sent. Registered before the
+	// pending action is saved, so closePrompt can wait for them instead of racing:
+	// otherwise the pin could land after the unpin, or a seeded reaction after the redactions.
+	done := make(chan struct{})
+	b.promptSetup.Store(promptID, done)
+	defer func() {
+		close(done)
+		b.promptSetup.Delete(promptID)
+	}()
 	err := b.store.SavePending(ctx, store.Pending{
 		EventID: promptID.String(), RoomID: evt.RoomID.String(), Action: action,
 		Entry: entry, RequestedBy: evt.Sender.String(),

@@ -43,6 +43,9 @@ type Bot struct {
 	createEvents sync.Map   // id.RoomID -> *event.Event (m.room.create never changes)
 	detecting    sync.Map   // repo URL -> *sync.Mutex held while link detection checks it
 	pinMu        sync.Mutex // serializes read-modify-write of rooms' pinned events
+	// promptSetup holds, per prompt event ID, a channel closed once prompt has
+	// finished seeding its reactions and pinning it, so closing it waits for that.
+	promptSetup sync.Map // id.EventID -> chan struct{}
 }
 
 func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {
