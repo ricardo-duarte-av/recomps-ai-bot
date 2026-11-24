@@ -45,6 +45,7 @@ func TestMatchSystem(t *testing.T) {
 		{"MS-DOS / Windows", []int{13, 6}, true},
 		{"Xbox Series X/S", []int{169}, true},
 		{"Windows, PlayStation 3, Xbox 360", []int{6, 9, 12}, false},
+		{"PlayStation 5 / Xbox Series X/S", []int{169}, true},
 		{"Amiga", nil, false},
 	} {
 		plats, single := matchSystem(testPlatforms, tc.system)
@@ -110,6 +111,14 @@ func TestGameURL(t *testing.T) {
 			return []Game{{Name: "Super Mario 3D World", Slug: "super-mario-3d-world", URL: "https://www.igdb.com/games/super-mario-3d-world", Platforms: []int{41}}}
 		case strings.Contains(q, `search "Super Mario 3D World"`) && strings.Contains(q, "where platforms = (130)"):
 			return []Game{{Name: "Super Mario 3D World + Bowser's Fury", Slug: "super-mario-3d-world-plus-bowsers-fury", Platforms: []int{130}}}
+		case strings.Contains(q, `search "Prototype"`):
+			return []Game{
+				{ID: 235105, Name: "Prototype", Slug: "prototype--2", Platforms: []int{6}},
+				{ID: 296161, Name: "Prototype", Slug: "prototype-rerelease", Platforms: []int{6}, VersionParent: 570, TotalRatingCount: 900},
+				{ID: 570, Name: "Prototype", Slug: "prototype", Platforms: []int{6}, TotalRatingCount: 400},
+			}
+		case strings.Contains(q, `search "Serious Sam Classic"`):
+			return []Game{{Name: "Serious Sam Classic", Slug: "serious-sam-classic"}}
 		case strings.Contains(q, `search "Unknown Game"`):
 			return []Game{{Name: "Unknown Game Deluxe", Slug: "ugd"}}
 		}
@@ -119,6 +128,8 @@ func TestGameURL(t *testing.T) {
 	for _, tc := range []struct{ game, system, want string }{
 		{"Super Mario 3D World", "Wii U", "https://www.igdb.com/games/super-mario-3d-world"},
 		{"Super Mario 3D World", "Nintendo Switch", "https://www.igdb.com/games/super-mario-3d-world-plus-bowsers-fury"},
+		{"Prototype", "Windows", "https://www.igdb.com/games/prototype"},
+		{"Serious Sam Classic (The First Encounter / The Second Encounter)", "Amiga", "https://www.igdb.com/games/serious-sam-classic"},
 		// Unknown system: only an exact title is accepted.
 		{"Unknown Game", "Amiga", ""},
 	} {

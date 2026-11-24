@@ -51,7 +51,10 @@ func matchSystem(all []Platform, system string) (plats []Platform, single bool) 
 	if p := matchOne(all, system); len(p) > 0 {
 		return p, true
 	}
-	parts := strings.FieldsFunc(system, func(r rune) bool { return r == ',' || r == '/' || r == '&' })
+	// Split lists like "Windows, PlayStation 3" or "PlayStation 5 / Xbox Series X/S",
+	// but not names with a bare slash such as "Xbox Series X/S".
+	parts := strings.FieldsFunc(strings.NewReplacer(" / ", ",", " & ", ",").Replace(system),
+		func(r rune) bool { return r == ',' })
 	if len(parts) < 2 {
 		return nil, false
 	}

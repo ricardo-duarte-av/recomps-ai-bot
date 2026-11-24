@@ -50,11 +50,14 @@ func (p Platform) Link() string {
 
 // Game is an IGDB game search result.
 type Game struct {
-	ID               int    `json:"id"`
-	Name             string `json:"name"`
-	Slug             string `json:"slug"`
-	URL              string `json:"url"`
-	Platforms        []int  `json:"platforms"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	URL       string `json:"url"`
+	Platforms []int  `json:"platforms"`
+	// VersionParent is set on re-releases and editions of another game.
+	VersionParent    int     `json:"version_parent"`
+	TotalRatingCount float64 `json:"total_rating_count"`
 	AlternativeNames []struct {
 		Name string `json:"name"`
 	} `json:"alternative_names"`
@@ -234,12 +237,24 @@ func (c *Client) PlatformURL(ctx context.Context, system string) (string, error)
 }
 
 // GameURL returns the IGDB page of game as released on system, or "" if no
-// IGDB game matches well enough.
+// IGDB game matches well enough. A title with a parenthetical, like
+// "Serious Sam Classic (The First Encounter)", is retried without it.
 func (c *Client) GameURL(ctx context.Context, game, system string) (string, error) {
 	game = strings.TrimSpace(game)
 	if game == "" {
 		return "", nil
 	}
+	link, err := c.gameURL(ctx, game, system)
+	if link != "" || err != nil {
+		return link, err
+	}
+	if before, _, ok := strings.Cut(game, "("); ok && strings.TrimSpace(before) != "" {
+		return c.gameURL(ctx, strings.TrimSpace(before), system)
+	}
+	return "", nil
+}
+
+func (c *Client) gameURL(ctx context.Context, game, system string) (string, error) {
 	all, err := c.Platforms(ctx)
 	if err != nil {
 		return "", err
@@ -250,7 +265,7 @@ func (c *Client) GameURL(ctx context.Context, game, system string) (string, erro
 		ids = append(ids, strconv.Itoa(p.ID))
 	}
 	search := func(where string) ([]Game, error) {
-		q := fmt.Sprintf(`search "%s"; fields name,slug,url,platforms,alternative_names.name; %slimit 25;`, escape(game), where)
+		q := fmt.Sprintf(`search "%s"; fields name,slug,url,platforms,version_parent,total_rating_count,alternative_names.name; %slimit 25;`, escape(game), where)
 		var games []Game
 		return games, c.query(ctx, "games", q, &games)
 	}
@@ -282,7 +297,9 @@ func escape(s string) string {
 
 // bestGame picks the search result whose title matches name best: an exact
 // title (or alternative title) first, then, unless exactOnly, one whose title
-// contains name or is contained in it. Ties keep IGDB's relevance order.
+// contains name or is contained in it. Among equal matches (IGDB has many
+// games sharing a title, and re-releases of the same one) it prefers originals
+// over versions, then the most rated game, then the oldest IGDB entry.
 func bestGame(games []Game, name string, exactOnly bool) *Game {
 	want := key(name)
 	if want == "" {
@@ -307,9 +324,20 @@ func bestGame(games []Game, name string, exactOnly bool) *Game {
 				score = max(score, 1)
 			}
 		}
-		if score > bestScore {
+		if score > bestScore || (score > 0 && score == bestScore && preferred(g, best)) {
 			best, bestScore = g, score
 		}
 	}
 	return best
+}
+
+// preferred reports whether a is a better pick than b among equal title matches.
+func preferred(a, b *Game) bool {
+	if (a.VersionParent == 0) != (b.VersionParent == 0) {
+		return a.VersionParent == 0
+	}
+	if a.TotalRatingCount != b.TotalRatingCount {
+		return a.TotalRatingCount > b.TotalRatingCount
+	}
+	return a.ID < b.ID
 }
