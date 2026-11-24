@@ -14,6 +14,7 @@ import (
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/bot"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/igdb"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/web"
@@ -41,12 +42,19 @@ func main() {
 	}
 	defer st.Close()
 
-	b := bot.New(cfg, log, st,
-		llm.New(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL, cfg.OpenAI.ReasoningEffort),
-		forge.NewClient(forgeHosts(cfg), cfg.Forges.AllowPrivateNetworks))
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	var linker *igdb.Linker
+	if cfg.IGDB.IsEnabled() {
+		linker = igdb.NewLinker(igdb.New(cfg.IGDB.ClientID, cfg.IGDB.ClientSecret), st,
+			log.With().Str("component", "igdb").Logger())
+		go linker.Run(ctx)
+	}
+
+	b := bot.New(cfg, log, st,
+		llm.New(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL, cfg.OpenAI.ReasoningEffort),
+		forge.NewClient(forgeHosts(cfg), cfg.Forges.AllowPrivateNetworks), linker)
 
 	if cfg.Web.IsEnabled() {
 		srv, err := web.New(st, log.With().Str("component", "web").Logger(), cfg.Web.Title)

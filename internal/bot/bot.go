@@ -19,6 +19,7 @@ import (
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/igdb"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 )
@@ -31,6 +32,7 @@ type Bot struct {
 	store  *store.Store
 	llm    *llm.Client
 	forge  *forge.Client
+	igdb   *igdb.Linker // nil when IGDB isn't configured
 
 	userID      id.UserID
 	displayName string
@@ -48,12 +50,12 @@ type Bot struct {
 	promptSetup sync.Map // id.EventID -> chan struct{}
 }
 
-func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client) *Bot {
+func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client, links *igdb.Linker) *Bot {
 	ignored := map[id.UserID]bool{}
 	for _, u := range cfg.Matrix.IgnoredUsers {
 		ignored[id.UserID(u)] = true
 	}
-	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, rooms: map[id.RoomID]bool{}, ignored: ignored}
+	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, igdb: links, rooms: map[id.RoomID]bool{}, ignored: ignored}
 }
 
 // Run logs in, sets up encryption, joins the configured rooms and syncs until ctx is cancelled.

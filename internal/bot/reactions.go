@@ -130,6 +130,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		if existing == nil && err == nil {
 			b.announce(ctx, e, evt.RoomID, evt.Sender)
 		}
+		b.igdb.Kick() // link the game on the web page
 	case "remove":
 		n, err := b.store.Remove(ctx, e.RepoURL, e.OSes)
 		if err != nil {

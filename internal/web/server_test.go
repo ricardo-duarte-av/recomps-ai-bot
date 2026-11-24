@@ -27,6 +27,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.SetIGDBLink(context.Background(), store.IGDBGameKey("Pokémon Emerald", "Game Boy Advance"),
+		"https://www.igdb.com/games/pokemon-emerald-version"); err != nil {
+		t.Fatal(err)
+	}
 	s, err := New(st, zerolog.Nop(), "Test <Title>")
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +84,9 @@ func TestAPI(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Game != "Pokémon Emerald" || strings.Join(rows[0].OSes, ",") != "Windows,Linux,macOS" {
 		t.Fatalf("rows = %+v", rows)
+	}
+	if rows[0].GameURL != "https://www.igdb.com/games/pokemon-emerald-version" || rows[0].SystemURL != "" {
+		t.Errorf("IGDB links = %q, %q", rows[0].GameURL, rows[0].SystemURL)
 	}
 }
 

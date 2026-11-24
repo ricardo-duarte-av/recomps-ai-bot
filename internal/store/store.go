@@ -84,6 +84,14 @@ CREATE TABLE IF NOT EXISTS detected_cache (
 	created_at INTEGER NOT NULL
 );
 
+-- IGDB pages of games and original systems, keyed by IGDBGameKey/IGDBSystemKey.
+-- An empty url records that IGDB had no match at checked_at.
+CREATE TABLE IF NOT EXISTS igdb_links (
+	key        TEXT PRIMARY KEY,
+	url        TEXT NOT NULL,
+	checked_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pending_actions (
 	event_id     TEXT PRIMARY KEY,
 	room_id      TEXT NOT NULL,
@@ -573,4 +581,50 @@ func (s *Store) GetCachedDetected(ctx context.Context, repoURL string) (*Entry, 
 		return nil, err
 	}
 	return &e, nil
+}
+
+// IGDBGameKey is the igdb_links key of a game as released on an original system.
+func IGDBGameKey(game, system string) string { return "game\x1f" + game + "\x1f" + system }
+
+// IGDBSystemKey is the igdb_links key of an original system.
+func IGDBSystemKey(system string) string { return "system\x1f" + system }
+
+// IGDBLink returns the cached IGDB link for key. ok is false if it was never
+// looked up; link is empty if IGDB had no match when it was.
+func (s *Store) IGDBLink(ctx context.Context, key string) (link string, checked time.Time, ok bool, err error) {
+	var at int64
+	err = s.DB.QueryRow(ctx, `SELECT url, checked_at FROM igdb_links WHERE key = $1`, key).Scan(&link, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", time.Time{}, false, nil
+	} else if err != nil {
+		return "", time.Time{}, false, err
+	}
+	return link, time.Unix(at, 0), true, nil
+}
+
+// SetIGDBLink caches the IGDB link for key ("" for no match).
+func (s *Store) SetIGDBLink(ctx context.Context, key, link string) error {
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO igdb_links (key, url, checked_at) VALUES ($1, $2, $3)
+		ON CONFLICT (key) DO UPDATE SET url = excluded.url, checked_at = excluded.checked_at`,
+		key, link, time.Now().Unix())
+	return err
+}
+
+// IGDBLinks returns every cached IGDB link that matched, by key.
+func (s *Store) IGDBLinks(ctx context.Context) (map[string]string, error) {
+	rows, err := s.DB.Query(ctx, `SELECT key, url FROM igdb_links WHERE url != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, u string
+		if err := rows.Scan(&k, &u); err != nil {
+			return nil, err
+		}
+		out[k] = u
+	}
+	return out, rows.Err()
 }

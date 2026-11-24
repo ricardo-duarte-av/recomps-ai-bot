@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/event"
@@ -34,17 +35,27 @@ func repoName(repoURL string) string {
 }
 
 // announcement is the markdown posted to the announcements room for a new entry.
-func announcement(e store.Entry, name string, by id.UserID) string {
+// gameURL and systemURL link the game and original system to IGDB when not empty.
+func announcement(e store.Entry, gameURL, systemURL, name string, by id.UserID) string {
 	kind := kindNoun(e.Kind)
 	platforms := oses.JoinDisplay(sortOSes(e.OSes))
+	system := mdLink(e.OriginalSystem, systemURL)
 	var what string
 	if e.Kind == store.KindToolkit {
-		what = fmt.Sprintf("a toolkit for %s games, running on %s", e.OriginalSystem, platforms)
+		what = fmt.Sprintf("a toolkit for %s games, running on %s", system, platforms)
 	} else {
-		what = fmt.Sprintf("a %s of %s from %s for %s", kind, e.Game, e.OriginalSystem, platforms)
+		what = fmt.Sprintf("a %s of %s from %s for %s", kind, mdLink(e.Game, gameURL), system, platforms)
 	}
 	return fmt.Sprintf("New %s added to the DB: **%s**, %s - %s , by [%s](%s)",
 		kind, repoName(e.RepoURL), what, e.RepoURL, escapeLinkText(name), matrixToURL(by))
+}
+
+// mdLink is text as a markdown link to href, or plain text when href is empty.
+func mdLink(text, href string) string {
+	if href == "" {
+		return text
+	}
+	return "[" + escapeLinkText(text) + "](" + href + ")"
 }
 
 // matrixToURL links to a user with the ID percent-encoded, e.g.
@@ -76,7 +87,14 @@ func (b *Bot) announce(ctx context.Context, e store.Entry, roomID id.RoomID, by 
 	if b.announceRoom == "" {
 		return
 	}
-	content := format.RenderMarkdown(announcement(e, b.userDisplayName(ctx, roomID, by), by), true, false)
+	game := e.Game
+	if e.Kind == store.KindToolkit {
+		game = ""
+	}
+	linkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	gameURL, systemURL := b.igdb.Links(linkCtx, game, e.OriginalSystem)
+	cancel()
+	content := format.RenderMarkdown(announcement(e, gameURL, systemURL, b.userDisplayName(ctx, roomID, by), by), true, false)
 	if _, err := b.client.SendMessageEvent(ctx, b.announceRoom, event.EventMessage, &content); err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to post announcement")
 	}

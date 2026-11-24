@@ -18,7 +18,18 @@ type Config struct {
 	Database Database `yaml:"database"`
 	Web      Web      `yaml:"web"`
 	Detect   Detect   `yaml:"detect"`
+	IGDB     IGDB     `yaml:"igdb"`
 }
+
+// IGDB holds the Twitch application credentials used to call the IGDB API.
+// Linking to IGDB is off when they're empty.
+type IGDB struct {
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+}
+
+// IsEnabled reports whether IGDB credentials are configured.
+func (i IGDB) IsEnabled() bool { return i.ClientID != "" }
 
 // Detect configures automatic detection of repository links posted in rooms.
 type Detect struct {
@@ -162,6 +173,9 @@ func Load(path string) (*Config, error) {
 		if !strings.HasPrefix(u, "@") || !strings.Contains(u, ":") {
 			errs = append(errs, fmt.Errorf("matrix.ignored_users[%d] %q must be a full user ID like @bot:example.org", i, u))
 		}
+	}
+	if (c.IGDB.ClientID == "") != (c.IGDB.ClientSecret == "") {
+		errs = append(errs, errors.New("igdb.client_id and igdb.client_secret must be set together"))
 	}
 	switch c.Detect.Mention {
 	case MentionModerators, MentionRoom, MentionNone:

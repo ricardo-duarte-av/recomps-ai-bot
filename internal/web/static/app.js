@@ -112,6 +112,15 @@
     }
   }
 
+  // Returns an IGDB link appended to parent, or parent itself when there's no https URL.
+  function linkTo(parent, href) {
+    if (!href || !/^https:\/\//i.test(href)) return parent;
+    const a = document.createElement("a");
+    a.href = href; a.rel = "noopener noreferrer"; a.target = "_blank"; a.className = "igdb"; a.title = "Open on IGDB";
+    parent.append(a);
+    return a;
+  }
+
   function td(cls) { const el = document.createElement("td"); el.className = cls; return el; }
 
   function renderRow(r, words) {
@@ -119,8 +128,8 @@
 
     const game = td("game");
     if (r.kind === "toolkit" && !r.game) game.append(Object.assign(document.createElement("span"), { className: "none", textContent: "—" }));
-    else highlight(game, r.game, words);
-    const system = td("system"); highlight(system, r.system, words);
+    else highlight(linkTo(game, r.game_url), r.game, words);
+    const system = td("system"); highlight(linkTo(system, r.system_url), r.system, words);
 
     const kind = td("kind");
     const tag = document.createElement("span");

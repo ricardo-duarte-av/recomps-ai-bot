@@ -29,7 +29,9 @@ var indexTmpl = template.Must(template.ParseFS(staticFiles, "static/index.html")
 // Row is one repository as sent to the page.
 type Row struct {
 	Game           string   `json:"game"`
+	GameURL        string   `json:"game_url,omitempty"` // IGDB page
 	OriginalSystem string   `json:"system"`
+	SystemURL      string   `json:"system_url,omitempty"` // IGDB page
 	Kind           string   `json:"kind"`
 	OSes           []string `json:"oses"`
 	URL            string   `json:"url"`
@@ -104,9 +106,17 @@ func (s *Server) serveRecomps(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
+	links, err := s.store.IGDBLinks(r.Context())
+	if err != nil {
+		s.log.Warn().Err(err).Msg("Failed to load IGDB links for web page")
+	}
 	rows := make([]Row, 0, len(entries))
 	for _, e := range entries {
-		row := Row{Game: e.Game, OriginalSystem: e.OriginalSystem, Kind: e.Kind, URL: e.RepoURL, Extra: e.Extra}
+		row := Row{Game: e.Game, OriginalSystem: e.OriginalSystem, Kind: e.Kind, URL: e.RepoURL, Extra: e.Extra,
+			SystemURL: links[store.IGDBSystemKey(e.OriginalSystem)]}
+		if e.Kind != store.KindToolkit {
+			row.GameURL = links[store.IGDBGameKey(e.Game, e.OriginalSystem)]
+		}
 		for _, os := range oses.All { // canonical order
 			for _, have := range e.OSes {
 				if have == os {
