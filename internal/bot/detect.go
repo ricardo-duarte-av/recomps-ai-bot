@@ -160,10 +160,9 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 // suggest posts a link-detection add prompt in evt's room.
 func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) {
 	pings, mentions := b.suggestionPings(ctx, evt.RoomID)
-	what := fmt.Sprintf("**%s** from %s, for %s", entry.Game, entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
-	if entry.Kind == store.KindToolkit {
-		what = fmt.Sprintf("for **%s** games, running on %s", entry.OriginalSystem, oses.JoinDisplay(entry.OSes))
-	}
+	gameURL, systemURL := b.igdbLinks(ctx, entry)
+	what := suggestionWhat(entry, gameURL, systemURL)
+
 	msg := fmt.Sprintf("Detected a %s not in the DB: %s , %s. Would you like to add it to the DB?\n\n"+
 		"A moderator can react with **%s** to add it or **%s** to dismiss it. If nobody answers within %s, I'll drop it and ask again the next time it's posted.",
 		entry.Kind, entry.RepoURL, what, reactOK, reactCancel, formatHours(store.DetectedPendingTTL))
@@ -171,6 +170,16 @@ func (b *Bot) suggest(ctx context.Context, evt *event.Event, entry store.Entry) 
 		msg += "\n\nPinging " + pings
 	}
 	b.prompt(ctx, evt, "add", entry, msg, mentions)
+}
+
+// suggestionWhat describes a suggested entry, e.g. "**Game** from System, for
+// Windows", with the game and system linked to IGDB when the URLs aren't empty.
+func suggestionWhat(e store.Entry, gameURL, systemURL string) string {
+	system := mdLink(e.OriginalSystem, systemURL)
+	if e.Kind == store.KindToolkit {
+		return fmt.Sprintf("for **%s** games, running on %s", system, oses.JoinDisplay(e.OSes))
+	}
+	return fmt.Sprintf("**%s** from %s, for %s", mdLink(e.Game, gameURL), system, oses.JoinDisplay(e.OSes))
 }
 
 // suggestionPings returns who a suggestion in room pings, as markdown for its last

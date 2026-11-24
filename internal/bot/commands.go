@@ -170,8 +170,9 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		return
 	}
 
+	gameURL, systemURL := b.igdbLinks(ctx, entry)
 	msg := fmt.Sprintf("Adding %s , a %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
-		entry.RepoURL, describe(entry), reactOK, reactCancel)
+		entry.RepoURL, describeLinked(entry, gameURL, systemURL), reactOK, reactCancel)
 	b.prompt(ctx, evt, "add", entry, msg, nil)
 }
 
@@ -478,12 +479,16 @@ func heading(e store.Entry) string {
 
 // describe says what an entry is, e.g. "recomp of **Game** from System, for
 // Windows and Linux" or "toolkit for **System** games, running on Linux".
-func describe(e store.Entry) string {
+func describe(e store.Entry) string { return describeLinked(e, "", "") }
+
+// describeLinked is describe with the game and system linked to gameURL and
+// systemURL (their IGDB pages) when those aren't empty.
+func describeLinked(e store.Entry, gameURL, systemURL string) string {
 	platforms := oses.JoinDisplay(sortOSes(e.OSes))
 	if e.Kind == store.KindToolkit {
-		return fmt.Sprintf("toolkit for **%s** games, running on %s", e.OriginalSystem, platforms)
+		return fmt.Sprintf("toolkit for **%s** games, running on %s", mdLink(e.OriginalSystem, systemURL), platforms)
 	}
-	return fmt.Sprintf("%s of **%s** from %s, for %s", e.Kind, e.Game, e.OriginalSystem, platforms)
+	return fmt.Sprintf("%s of **%s** from %s, for %s", e.Kind, mdLink(e.Game, gameURL), mdLink(e.OriginalSystem, systemURL), platforms)
 }
 
 // subject names what an entry is for: "game **Game** on System" or "the **System** toolkit".

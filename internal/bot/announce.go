@@ -81,19 +81,28 @@ func (b *Bot) userDisplayName(ctx context.Context, roomID id.RoomID, userID id.U
 	return userID.String()
 }
 
+// igdbLinks returns the IGDB pages of e's game and original system ("" when
+// unknown or IGDB isn't configured), waiting at most 15 seconds for IGDB.
+func (b *Bot) igdbLinks(ctx context.Context, e store.Entry) (gameURL, systemURL string) {
+	if b.igdb == nil {
+		return "", ""
+	}
+	game := e.Game
+	if e.Kind == store.KindToolkit {
+		game = ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return b.igdb.Links(ctx, game, e.OriginalSystem)
+}
+
 // announce posts a new entry to matrix.announce_room, if one is configured.
 // roomID is the room the confirming moderator reacted in.
 func (b *Bot) announce(ctx context.Context, e store.Entry, roomID id.RoomID, by id.UserID) {
 	if b.announceRoom == "" {
 		return
 	}
-	game := e.Game
-	if e.Kind == store.KindToolkit {
-		game = ""
-	}
-	linkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	gameURL, systemURL := b.igdb.Links(linkCtx, game, e.OriginalSystem)
-	cancel()
+	gameURL, systemURL := b.igdbLinks(ctx, e)
 	content := format.RenderMarkdown(announcement(e, gameURL, systemURL, b.userDisplayName(ctx, roomID, by), by), true, false)
 	if _, err := b.client.SendMessageEvent(ctx, b.announceRoom, event.EventMessage, &content); err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to post announcement")
