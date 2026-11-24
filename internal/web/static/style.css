@@ -64,13 +64,19 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 }
 
 .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 10px 12px; vertical-align: top; }
+/* Fixed layout: columns take shares of the window width, so the table always fits and never scrolls sideways. */
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.heads th:nth-child(1) { width: 18%; }  /* game */
+.heads th:nth-child(2) { width: 11%; }  /* system */
+.heads th:nth-child(3) { width: 7rem; } /* type */
+.heads th:nth-child(4) { width: 14%; }  /* platforms */
+.heads th:nth-child(5) { width: 20%; }  /* url; extra takes the rest */
+th, td { text-align: left; padding: 10px 12px; vertical-align: top; overflow-wrap: anywhere; }
 thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .heads th { padding-bottom: 4px; }
 .heads button {
   all: unset; cursor: pointer; font-weight: 600; font-size: 0.82rem;
-  text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
 }
 .heads button::after { content: ""; display: inline-block; width: 1em; }
 .heads button[aria-sort="ascending"]::after { content: " ▲"; }
@@ -78,7 +84,7 @@ thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .heads button[aria-sort] { color: var(--text); }
 .filters th { padding-top: 0; border-bottom: 1px solid var(--border); }
 .filters input, .filters select {
-  width: 100%; min-width: 7rem; padding: 6px 8px; font-size: 0.88rem; font-weight: 400;
+  width: 100%; min-width: 0; padding: 6px 8px; font-size: 0.88rem; font-weight: 400;
   border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
 }
 
@@ -86,14 +92,11 @@ tbody tr { border-top: 1px solid var(--border); }
 tbody tr:first-child { border-top: 0; }
 tbody tr:hover { background: var(--row-hover); }
 td.game { font-weight: 600; }
-td.system { color: var(--muted); white-space: nowrap; }
+td.system { color: var(--muted); }
 td.url a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
 td.url a:hover { text-decoration: underline; }
-td.oses { min-width: 10rem; }
-/* Extra soaks up whatever width is left; the other columns size to their content. */
-td.extra { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.88rem; min-width: 40ch; }
+td.extra { white-space: pre-wrap; font-size: 0.88rem; }
 td.extra a { color: var(--accent); }
-td.extra:empty { min-width: 0; }
 
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
 .tag.recomp { color: var(--recomp); background: var(--recomp-bg); }
@@ -107,21 +110,21 @@ td.game .none { color: var(--muted); }
 mark { background: #fde68a; color: inherit; border-radius: 2px; }
 @media (prefers-color-scheme: dark) { mark { background: #6b5513; } }
 
-/* Wide enough screens: keep game names and URLs on one line. */
-@media (min-width: 1100px) {
-  td.game, td.url a { white-space: nowrap; }
+/* Medium windows: tighter cells so the shares stay readable. */
+@media (max-width: 1100px) {
+  th, td { padding: 8px 8px; }
+  .heads th:nth-child(3) { width: 6.5rem; }
 }
 
 /* Phones: rows become cards, filters stack. */
 @media (max-width: 720px) {
   .heads { display: none; }
   table, thead, tbody, tr, th, td { display: block; }
+  table { table-layout: auto; }
   .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
   .filters th { padding: 0; border: 0; }
   thead th { position: static; }
   tbody tr { padding: 10px 12px; }
   td { padding: 2px 0; }
-  td.system { white-space: normal; }
-  td.extra { width: auto; min-width: 0; }
   td.extra:not(:empty) { margin-top: 6px; }
 }
