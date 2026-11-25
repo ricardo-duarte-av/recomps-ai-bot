@@ -71,7 +71,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		fileServer.ServeHTTP(w, r)
 	})))
-	return securityHeaders(gzipMiddleware(mux))
+	return s.accessLog(securityHeaders(gzipMiddleware(mux)))
 }
 
 // Run serves on addr until ctx is cancelled.
@@ -163,6 +163,53 @@ func (s *Server) serveCover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", c.Mime)
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeContent(w, r, "", c.Checked, bytes.NewReader(c.Data))
+}
+
+// statusWriter records the status and size of a response for the access log.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += n
+	return n, err
+}
+
+// accessLog logs every request. Page views and failed requests are logged at
+// info level; the page's own follow-up requests (assets, covers, the list it
+// polls every minute) and health checks at debug level, so a visit is one line.
+func (s *Server) accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		if sw.status == 0 {
+			sw.status = http.StatusOK
+		}
+		ev := s.log.Debug()
+		if r.URL.Path == "/" || sw.status >= 400 {
+			ev = s.log.Info()
+		}
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			ev = ev.Str("forwarded_for", fwd)
+		}
+		ev.Str("method", r.Method).Str("path", r.URL.RequestURI()).Int("status", sw.status).Int("bytes", sw.bytes).
+			Str("took", time.Since(start).Round(time.Millisecond).String()).Str("remote", r.RemoteAddr).
+			Str("user_agent", r.UserAgent()).Str("referer", r.Referer()).Msg("HTTP request")
+	})
 }
 
 func securityHeaders(next http.Handler) http.Handler {

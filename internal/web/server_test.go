@@ -125,3 +125,26 @@ func TestAssetsGzipped(t *testing.T) {
 		t.Errorf("unknown path should 404, got %d", resp.StatusCode)
 	}
 }
+
+func TestAccessLog(t *testing.T) {
+	var buf strings.Builder
+	st, err := store.Open(filepath.Join(t.TempDir(), "log.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s, err := New(st, zerolog.New(&buf).Level(zerolog.InfoLevel), "T")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	get(t, srv.URL+"/", true)
+	get(t, srv.URL+"/assets/app.js", true)
+	get(t, srv.URL+"/covers/1", false)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], `"path":"/"`) || !strings.Contains(lines[0], `"status":200`) ||
+		!strings.Contains(lines[1], `"path":"/covers/1"`) || !strings.Contains(lines[1], `"status":404`) {
+		t.Errorf("access log:\n%s", buf.String())
+	}
+}
