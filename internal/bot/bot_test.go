@@ -1,10 +1,13 @@
 package bot
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/store"
 
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -116,5 +119,27 @@ func TestIsRequest(t *testing.T) {
 		if got := isRequest(&tc.intent); got != tc.want {
 			t.Errorf("isRequest(%+v) = %v, want %v", tc.intent, got, tc.want)
 		}
+	}
+}
+
+func TestMarkOutcome(t *testing.T) {
+	w := &work{}
+	ctx := context.WithValue(context.Background(), workKey{}, w)
+	markOutcome(ctx, outcomeCaptured)
+	markOutcome(ctx, outcomeMissingInfo)
+	markOutcome(ctx, outcomeCaptured)
+	if got := strings.Join(w.outcomes, "|"); got != "Captured|Missing info, help" {
+		t.Errorf("outcomes = %q", got)
+	}
+	markOutcome(context.Background(), outcomeIgnored) // no work attached: no-op
+}
+
+func TestMissingInfoText(t *testing.T) {
+	url := "https://github.com/nikitaluger/castlevaniacotmdecomp"
+	missing := missingInfo(store.Entry{RepoURL: url, Game: "Castlevania: Circle of the Moon", OriginalSystem: "Game Boy Advance", Kind: "decomp"})
+	want := "I couldn't work out the supported platforms for " + url + ". Please tell me, e.g. `add this repo to the list " + url +
+		" , a Super Mario 64 recomp for Nintendo 64, for windows, linux and macos`."
+	if got := missingInfoText(url, missing, nil); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
 	}
 }

@@ -127,6 +127,7 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 	if err != nil {
 		log.Warn().Err(err).Msg("Detected link but couldn't fetch README")
 		markFailed(ctx)
+		markOutcome(ctx, outcomeMissingData)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
@@ -134,27 +135,32 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to classify detected repo")
 		markFailed(ctx)
+		markOutcome(ctx, outcomeAIFail)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
 	if !info.InScope {
 		log.Info().Interface("info", info).Msg("Detected repo is not a game port or toolkit")
+		markOutcome(ctx, outcomeIgnored)
 		_ = b.store.MarkSeen(ctx, url, store.SeenNotGame)
 		return
 	}
-	if (info.Game == "" && info.Kind != store.KindToolkit) || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
-		// A game port or toolkit we couldn't fully describe: retry later rather than writing it off.
-		log.Warn().Interface("info", info).Msg("Detected game repo with incomplete info")
-		markFailed(ctx)
-		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
-		return
-	}
-
 	entry := store.Entry{
 		RepoURL: url, Game: info.Game, OriginalSystem: info.OriginalSystem,
 		Kind: info.Kind, OSes: info.OSes, Detected: true,
 	}
+	if missing := missingInfo(entry); len(missing) > 0 {
+		// A game port or toolkit we couldn't fully describe: ask for help, and
+		// retry later rather than writing it off.
+		log.Warn().Interface("info", info).Strs("missing", missing).Msg("Detected game repo with incomplete info")
+		markFailed(ctx)
+		markOutcome(ctx, outcomeMissingInfo)
+		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
+		b.reply(ctx, evt, missingInfoText(url, missing, nil))
+		return
+	}
 	log.Info().Interface("entry", entry).Msg("Suggesting detected repo")
+	markOutcome(ctx, outcomeCaptured)
 	b.suggest(ctx, evt, entry)
 }
 

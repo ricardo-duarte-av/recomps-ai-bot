@@ -189,28 +189,9 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 		entry.Game = "" // toolkits aren't tied to one game
 	}
 
-	var missing []string
-	if entry.Game == "" && entry.Kind != store.KindToolkit {
-		missing = append(missing, "the game")
-	}
-	if entry.OriginalSystem == "" {
-		missing = append(missing, "the original system")
-	}
-	if entry.Kind == "" {
-		missing = append(missing, "whether it's a recomp, a decomp, a reimpl or a toolkit")
-	}
-	if len(entry.OSes) == 0 {
-		missing = append(missing, "the supported platforms")
-	}
-	if len(missing) > 0 {
-		var why string
-		if err != nil {
-			why = fmt.Sprintf(" (couldn't read the README: %v)", err)
-		}
+	if missing := missingInfo(entry); len(missing) > 0 {
 		markFailed(ctx)
-		b.reply(ctx, evt, fmt.Sprintf(
-			"I couldn't work out %s for %s%s. Please tell me, e.g. `add this repo to the list %s , a Super Mario 64 recomp for Nintendo 64, for windows, linux and macos`.",
-			joinAnd(missing), repo.URL(), why, repo.URL()))
+		b.reply(ctx, evt, missingInfoText(repo.URL(), missing, err))
 		return
 	}
 
@@ -225,6 +206,36 @@ func (b *Bot) handleAdd(ctx context.Context, evt *event.Event, text string, inte
 	msg := fmt.Sprintf("Adding %s , a %s.\n\nA moderator can react with **%s** to confirm or **%s** to cancel.",
 		entry.RepoURL, describeLinked(entry, gameURL, systemURL), reactOK, reactCancel)
 	b.prompt(ctx, evt, "add", entry, msg, nil)
+}
+
+// missingInfo lists what an entry still needs before it can be added.
+func missingInfo(e store.Entry) []string {
+	var missing []string
+	if e.Game == "" && e.Kind != store.KindToolkit {
+		missing = append(missing, "the game")
+	}
+	if e.OriginalSystem == "" {
+		missing = append(missing, "the original system")
+	}
+	if e.Kind == "" {
+		missing = append(missing, "whether it's a recomp, a decomp, a reimpl or a toolkit")
+	}
+	if len(e.OSes) == 0 {
+		missing = append(missing, "the supported platforms")
+	}
+	return missing
+}
+
+// missingInfoText asks for the missing parts of repoURL's entry, with an
+// example add request. readErr, when set, says why the README wasn't read.
+func missingInfoText(repoURL string, missing []string, readErr error) string {
+	var why string
+	if readErr != nil {
+		why = fmt.Sprintf(" (couldn't read the README: %v)", readErr)
+	}
+	return fmt.Sprintf(
+		"I couldn't work out %s for %s%s. Please tell me, e.g. `add this repo to the list %s , a Super Mario 64 recomp for Nintendo 64, for windows, linux and macos`.",
+		joinAnd(missing), repoURL, why, repoURL)
 }
 
 func (b *Bot) handleRemove(ctx context.Context, evt *event.Event, text string, intent *llm.Intent) {

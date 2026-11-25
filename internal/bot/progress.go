@@ -2,6 +2,8 @@ package bot
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,11 +18,36 @@ const (
 	reactFailed  = "❌"
 )
 
+// Text reactions naming the outcome of checking a posted repository link.
+const (
+	outcomeCaptured    = "Captured"           // suggested for the list
+	outcomeIgnored     = "Ignored"            // not a game port or toolkit
+	outcomeMissingData = "Missing data"       // README and description couldn't be fetched
+	outcomeAIFail      = "AI fail"            // the AI request failed
+	outcomeMissingInfo = "Missing info, help" // game, system, kind or platforms unknown
+)
+
 type workKey struct{}
 
 // work tracks the outcome of processing one message.
 type work struct {
 	failed atomic.Bool
+
+	mu       sync.Mutex
+	outcomes []string
+}
+
+// markOutcome sets a text reaction that replaces 🆗/❌ when the work attached to
+// ctx finishes. Several distinct outcomes (one message with several links) each
+// get their own reaction.
+func markOutcome(ctx context.Context, outcome string) {
+	if w, ok := ctx.Value(workKey{}).(*work); ok {
+		w.mu.Lock()
+		if !slices.Contains(w.outcomes, outcome) {
+			w.outcomes = append(w.outcomes, outcome)
+		}
+		w.mu.Unlock()
+	}
 }
 
 // markFailed records that the work attached to ctx failed (AI, forge or database errors,
@@ -62,11 +89,18 @@ func (p *progress) finish(ctx context.Context) {
 			log.Warn().Err(err).Msg("Failed to remove working reaction")
 		}
 	}
-	result := reactDone
-	if p.w.failed.Load() {
-		result = reactFailed
+	p.w.mu.Lock()
+	results := slices.Clone(p.w.outcomes)
+	p.w.mu.Unlock()
+	if len(results) == 0 {
+		results = []string{reactDone}
+		if p.w.failed.Load() {
+			results[0] = reactFailed
+		}
 	}
-	if _, err := p.b.client.SendReaction(ctx, p.evt.RoomID, p.evt.ID, result); err != nil {
-		log.Warn().Err(err).Msg("Failed to add result reaction")
+	for _, result := range results {
+		if _, err := p.b.client.SendReaction(ctx, p.evt.RoomID, p.evt.ID, result); err != nil {
+			log.Warn().Err(err).Str("reaction", result).Msg("Failed to add result reaction")
+		}
 	}
 }
