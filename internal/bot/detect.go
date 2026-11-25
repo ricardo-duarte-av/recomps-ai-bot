@@ -145,6 +145,7 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 	if (info.Game == "" && info.Kind != store.KindToolkit) || info.OriginalSystem == "" || info.Kind == "" || len(info.OSes) == 0 {
 		// A game port or toolkit we couldn't fully describe: retry later rather than writing it off.
 		log.Warn().Interface("info", info).Msg("Detected game repo with incomplete info")
+		markFailed(ctx)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
 		return
 	}
