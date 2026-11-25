@@ -4,7 +4,7 @@
   const REFRESH_MS = 60_000;
 
   const $ = (sel) => document.querySelector(sel);
-  const tbody = $("#rows");
+  const table = $("#t");
   const countEl = $("#count");
   const emptyEl = $("#empty");
   const clearBtn = $("#clear");
@@ -23,11 +23,16 @@
   const cellText = (r, col) => (col === "oses" ? r.oses.join(", ") : r[col]);
 
   function prepare(data) {
-    return data.map((r) => {
+    return data.map((r, i) => {
       r.oses = r.oses || [];
       r.extra = r.extra || "";
       r._n = Object.fromEntries(COLS.map((c) => [c, norm(cellText(r, c))]));
       r._all = COLS.map((c) => r._n[c]).join(" \u0000 ");
+      // Entries for the same game share a group: same IGDB page, else same title and system.
+      // Toolkits without a game each stand alone.
+      r._group = r.kind === "toolkit" && !r.game ? "t\u0000" + i
+        : r.game_url ? "u\u0000" + r.game_url
+        : "g\u0000" + r._n.game + "\u0000" + r._n.system;
       return r;
     });
   }
@@ -72,14 +77,23 @@
       return d * sort.dir || a._n.game.localeCompare(b._n.game);
     });
 
+    // One group per game, placed where its best-sorted entry falls, with its entries underneath.
+    const groups = new Map();
+    for (const r of out) {
+      const g = groups.get(r._group);
+      if (g) g.push(r); else groups.set(r._group, [r]);
+    }
+    for (const el of table.querySelectorAll("tbody")) el.remove();
     const frag = document.createDocumentFragment();
-    for (const r of out) frag.append(renderRow(r, words));
-    tbody.replaceChildren(frag);
+    for (const g of groups.values()) frag.append(renderGroup(g, words));
+    table.append(frag);
 
     const active = words.length > 0 || filters.length > 0;
+    const total = new Set(rows.map((r) => r._group)).size;
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
     countEl.textContent = active
-      ? `Showing ${out.length} of ${rows.length} ${rows.length === 1 ? "entry" : "entries"}`
-      : `${rows.length} ${rows.length === 1 ? "entry" : "entries"}`;
+      ? `Showing ${plural(groups.size, "game", "games")} (${plural(out.length, "entry", "entries")}) of ${total}`
+      : `${plural(total, "game", "games")}, ${plural(rows.length, "entry", "entries")}`;
     emptyEl.hidden = out.length > 0;
     if (!rows.length) emptyEl.textContent = "The list is empty so far.";
     else emptyEl.textContent = "Nothing matches these filters.";
@@ -123,12 +137,27 @@
 
   function td(cls) { const el = document.createElement("td"); el.className = cls; return el; }
 
+  // A tbody per game: the game cell spans all of its entries' rows.
+  function renderGroup(g, words) {
+    const body = document.createElement("tbody");
+    g.forEach((r, i) => {
+      const tr = renderRow(r, words);
+      if (i === 0) {
+        const game = td("game");
+        game.rowSpan = g.length;
+        if (r.kind === "toolkit" && !r.game) game.append(Object.assign(document.createElement("span"), { className: "none", textContent: "—" }));
+        else highlight(linkTo(game, r.game_url), r.game, words);
+        tr.prepend(game);
+      }
+      body.append(tr);
+    });
+    if (g.length > 1) body.className = "multi";
+    return body;
+  }
+
   function renderRow(r, words) {
     const tr = document.createElement("tr");
 
-    const game = td("game");
-    if (r.kind === "toolkit" && !r.game) game.append(Object.assign(document.createElement("span"), { className: "none", textContent: "—" }));
-    else highlight(linkTo(game, r.game_url), r.game, words);
     const system = td("system"); highlight(linkTo(system, r.system_url), r.system, words);
 
     const kind = td("kind");
@@ -156,7 +185,7 @@
     const extra = td("extra");
     renderExtra(extra, r.extra, words);
 
-    tr.append(game, system, kind, os, url, extra);
+    tr.append(system, kind, os, url, extra);
     return tr;
   }
 

@@ -88,9 +88,11 @@ thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
   border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
 }
 
-tbody tr { border-top: 1px solid var(--border); }
-tbody tr:first-child { border-top: 0; }
-tbody tr:hover { background: var(--row-hover); }
+/* One tbody per game; its entries sit underneath, split by fainter lines. */
+tbody { border-top: 1px solid var(--border); }
+thead + tbody { border-top: 0; }
+tbody tr + tr td { border-top: 1px dashed var(--border); }
+tbody:hover td { background: var(--row-hover); }
 td.game { font-weight: 600; }
 td.system { color: var(--muted); }
 td.url a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
@@ -126,7 +128,9 @@ mark { background: #fde68a; color: inherit; border-radius: 2px; }
   .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
   .filters th { padding: 0; border: 0; }
   thead th { position: static; }
-  tbody tr { padding: 10px 12px; }
+  tbody { padding: 10px 12px; }
+  tbody tr + tr { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  tbody tr + tr td { border-top: 0; }
   td { padding: 2px 0; }
   td.extra:not(:empty) { margin-top: 6px; }
 }
