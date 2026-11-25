@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -158,7 +159,7 @@ func TestEscape(t *testing.T) {
 
 func TestLinkerCaches(t *testing.T) {
 	c, calls := fakeIGDB(t, func(q string) []Game {
-		return []Game{{Name: "Street Fighter Alpha Anthology", Slug: "street-fighter-alpha-anthology",
+		return []Game{{ID: 77, Name: "Street Fighter Alpha Anthology", Slug: "street-fighter-alpha-anthology",
 			URL: "https://www.igdb.com/games/street-fighter-alpha-anthology", Platforms: []int{8}}}
 	})
 	st, err := store.Open(filepath.Join(t.TempDir(), "igdb.db"))
@@ -178,7 +179,7 @@ func TestLinkerCaches(t *testing.T) {
 		t.Errorf("IGDB was called %d times, want 2", n)
 	}
 	links, err := st.IGDBLinks(ctx)
-	if err != nil || links[store.IGDBGameKey("Street Fighter Alpha Anthology", "PlayStation 2")] == "" {
+	if err != nil || links[store.IGDBGameKey("Street Fighter Alpha Anthology", "PlayStation 2")].ID != 77 {
 		t.Errorf("IGDBLinks = %v, %v", links, err)
 	}
 
@@ -229,4 +230,96 @@ func TestImageURL(t *testing.T) {
 			t.Errorf("ImageURL(%s) = %q, %v; want %q", page, got, err, want)
 		}
 	}
+}
+
+// TestLinkerCovers checks that sync stores game IDs (also for links cached
+// before IDs were), caches covers once, and serves announcement images from
+// the cache.
+func TestLinkerCovers(t *testing.T) {
+	var images atomic.Int32
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		q := string(body)
+		switch {
+		case r.URL.Path == "/token":
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+		case r.URL.Path == "/v4/platforms":
+			json.NewEncoder(w).Encode(testPlatforms)
+		case strings.HasPrefix(r.URL.Path, "/img/"):
+			images.Add(1)
+			w.Write([]byte("\x89PNG\r\n\x1a\n fake"))
+		case strings.Contains(q, `search "New Game"`):
+			w.Write([]byte(`[{"id":5,"name":"New Game","slug":"new-game","platforms":[8]}]`))
+		case strings.Contains(q, `fields id; where slug = "old-game"`):
+			w.Write([]byte(`[{"id":6}]`))
+		case strings.Contains(q, "where id = 5"):
+			w.Write([]byte(`[{"cover":{"image_id":"co5"}}]`))
+		case strings.Contains(q, "where id = 6"):
+			w.Write([]byte(`[{}]`))
+		default:
+			w.Write([]byte(`[]`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	srvURL = srv.URL
+	c := New("id", "secret")
+	c.apiURL, c.tokenURL = srvURL+"/v4/", srvURL+"/token"
+	st, err := store.Open(filepath.Join(t.TempDir(), "covers.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	for _, e := range []store.Entry{
+		{RepoURL: "https://github.com/a/new", Game: "New Game", OriginalSystem: "PlayStation 2", Kind: "recomp", OSes: []string{"linux"}},
+		{RepoURL: "https://github.com/a/old", Game: "Old Game", OriginalSystem: "PlayStation 2", Kind: "recomp", OSes: []string{"linux"}},
+	} {
+		if err := st.Add(ctx, e, "@mod:x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Linked before IDs were stored.
+	if err := st.SetIGDBLink(ctx, store.IGDBGameKey("Old Game", "PlayStation 2"), "https://www.igdb.com/games/old-game", 0); err != nil {
+		t.Fatal(err)
+	}
+	l := NewLinker(c, st, zerolog.Nop())
+	// Point image downloads at the fake server.
+	l.client.http.Transport = rewriteImages{srvURL}
+	for range 2 {
+		l.sync(ctx)
+	}
+	links, _ := st.IGDBLinks(ctx)
+	if id := links[store.IGDBGameKey("New Game", "PlayStation 2")].ID; id != 5 {
+		t.Errorf("new game ID = %d, want 5", id)
+	}
+	if id := links[store.IGDBGameKey("Old Game", "PlayStation 2")].ID; id != 6 {
+		t.Errorf("old game ID = %d, want 6", id)
+	}
+	ids, err := st.IGDBCoverIDs(ctx)
+	if err != nil || !ids[5] || ids[6] {
+		t.Errorf("cover IDs = %v, %v; want only 5", ids, err)
+	}
+	if _, ok, _ := st.IGDBCover(ctx, 6); !ok {
+		t.Error("missing cover of game 6 wasn't recorded")
+	}
+	img, err := l.Image(ctx, "https://www.igdb.com/games/new-game")
+	if err != nil || img == nil || img.MimeType != "image/png" {
+		t.Fatalf("Image = %+v, %v", img, err)
+	}
+	if n := images.Load(); n != 1 {
+		t.Errorf("downloaded %d images, want 1", n)
+	}
+}
+
+// rewriteImages sends requests for images.igdb.com to a test server.
+type rewriteImages struct{ base string }
+
+func (rw rewriteImages) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host == "images.igdb.com" {
+		u, _ := url.Parse(rw.base + "/img" + r.URL.Path)
+		r = r.Clone(r.Context())
+		r.URL, r.Host = u, u.Host
+	}
+	return http.DefaultTransport.RoundTrip(r)
 }

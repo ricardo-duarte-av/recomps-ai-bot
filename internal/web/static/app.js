@@ -146,7 +146,21 @@
         const game = td("game");
         game.rowSpan = g.length;
         if (r.kind === "toolkit" && !r.game) game.append(Object.assign(document.createElement("span"), { className: "none", textContent: "—" }));
-        else highlight(linkTo(game, r.game_url), r.game, words);
+        else {
+          // Any entry of the game may carry the cover; they all share the same IGDB game.
+          const cover = g.find((e) => e.cover)?.cover;
+          if (cover) {
+            const img = document.createElement("img");
+            img.className = "cover"; img.src = cover; img.alt = ""; img.loading = "lazy"; img.decoding = "async";
+            img.width = 264; img.height = 374;
+            img.addEventListener("error", () => img.remove());
+            linkTo(game, r.game_url).append(img);
+          }
+          const name = document.createElement("div");
+          name.className = "name";
+          highlight(linkTo(name, r.game_url), r.game, words);
+          game.append(name);
+        }
         tr.prepend(game);
       }
       body.append(tr);

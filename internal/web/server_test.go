@@ -28,7 +28,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	if err := st.SetIGDBLink(context.Background(), store.IGDBGameKey("Pokémon Emerald", "Game Boy Advance"),
-		"https://www.igdb.com/games/pokemon-emerald-version"); err != nil {
+		"https://www.igdb.com/games/pokemon-emerald-version", 1234); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetIGDBCover(context.Background(), 1234, []byte("\xff\xd8\xff\xe0fake jpeg"), "image/jpeg"); err != nil {
 		t.Fatal(err)
 	}
 	s, err := New(st, zerolog.Nop(), "Test <Title>")
@@ -87,6 +90,23 @@ func TestAPI(t *testing.T) {
 	}
 	if rows[0].GameURL != "https://www.igdb.com/games/pokemon-emerald-version" || rows[0].SystemURL != "" {
 		t.Errorf("IGDB links = %q, %q", rows[0].GameURL, rows[0].SystemURL)
+	}
+	if rows[0].Cover != "covers/1234" {
+		t.Errorf("cover = %q", rows[0].Cover)
+	}
+}
+
+func TestCover(t *testing.T) {
+	srv := newTestServer(t)
+	resp, body := get(t, srv.URL+"/covers/1234", true)
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "image/jpeg" ||
+		resp.Header.Get("Content-Encoding") != "" || !strings.HasSuffix(body, "fake jpeg") {
+		t.Errorf("cover: status %d type %q enc %q body %q", resp.StatusCode, resp.Header.Get("Content-Type"), resp.Header.Get("Content-Encoding"), body)
+	}
+	for _, p := range []string{"/covers/999", "/covers/abc", "/covers/-1"} {
+		if resp, _ := get(t, srv.URL+p, false); resp.StatusCode != 404 {
+			t.Errorf("%s: status %d, want 404", p, resp.StatusCode)
+		}
 	}
 }
 

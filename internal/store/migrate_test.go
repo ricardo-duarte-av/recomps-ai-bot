@@ -77,3 +77,42 @@ func TestMigrateKindCheck(t *testing.T) {
 		t.Fatal("constraint should still reject unknown kinds")
 	}
 }
+
+// TestMigrateIGDBID opens a database whose igdb_links predates igdb_id and
+// checks that cached links survive with an unknown ID.
+func TestMigrateIGDBID(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite3-fk-wal", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`
+		CREATE TABLE igdb_links (key TEXT PRIMARY KEY, url TEXT NOT NULL, checked_at INTEGER NOT NULL);
+		INSERT INTO igdb_links VALUES ('k', 'https://www.igdb.com/games/x', 1);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	for range 2 { // the second open must be a no-op
+		s, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if l, ok, err := s.IGDBLink(ctx, "k"); err != nil || !ok || l.URL != "https://www.igdb.com/games/x" || l.ID != 0 {
+		t.Fatalf("IGDBLink = %+v, %v, %v", l, ok, err)
+	}
+	if err := s.SetIGDBID(ctx, "https://www.igdb.com/games/x", 42); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := s.IGDBGameID(ctx, "https://www.igdb.com/games/x"); err != nil || id != 42 {
+		t.Errorf("IGDBGameID = %d, %v", id, err)
+	}
+}

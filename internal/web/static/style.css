@@ -108,6 +108,11 @@ td.extra a { color: var(--accent); }
 .tag.reimpl { color: var(--reimpl); background: var(--reimpl-bg); }
 .tag.toolkit { color: var(--toolkit); background: var(--toolkit-bg); }
 td.game .none { color: var(--muted); }
+/* IGDB covers are 264x374; artwork fallbacks are cropped to the same shape. */
+img.cover {
+  display: block; width: min(96px, 100%); height: auto; aspect-ratio: 264 / 374; object-fit: cover;
+  margin-bottom: 6px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border);
+}
 .os { display: inline-block; margin: 0 4px 4px 0; padding: 1px 8px; border-radius: 6px; font-size: 0.82rem; background: var(--accent-soft); white-space: nowrap; }
 
 .empty { text-align: center; color: var(--muted); padding: 32px 0; }
@@ -133,4 +138,5 @@ mark { background: #fde68a; color: inherit; border-radius: 2px; }
   tbody tr + tr td { border-top: 0; }
   td { padding: 2px 0; }
   td.extra:not(:empty) { margin-top: 6px; }
+  img.cover { width: 72px; }
 }

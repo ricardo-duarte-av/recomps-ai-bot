@@ -12,6 +12,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ var indexTmpl = template.Must(template.ParseFS(staticFiles, "static/index.html")
 type Row struct {
 	Game           string   `json:"game"`
 	GameURL        string   `json:"game_url,omitempty"` // IGDB page
+	Cover          string   `json:"cover,omitempty"`    // cached cover picture, relative to the page
 	OriginalSystem string   `json:"system"`
 	SystemURL      string   `json:"system_url,omitempty"` // IGDB page
 	Kind           string   `json:"kind"`
@@ -58,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.serveIndex)
 	mux.HandleFunc("GET /api/recomps", s.serveRecomps)
+	mux.HandleFunc("GET /covers/{id}", s.serveCover)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	fileServer := http.FileServerFS(static)
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,12 +113,20 @@ func (s *Server) serveRecomps(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Warn().Err(err).Msg("Failed to load IGDB links for web page")
 	}
+	covers, err := s.store.IGDBCoverIDs(r.Context())
+	if err != nil {
+		s.log.Warn().Err(err).Msg("Failed to load IGDB covers for web page")
+	}
 	rows := make([]Row, 0, len(entries))
 	for _, e := range entries {
 		row := Row{Game: e.Game, OriginalSystem: e.OriginalSystem, Kind: e.Kind, URL: e.RepoURL, Extra: e.Extra,
-			SystemURL: links[store.IGDBSystemKey(e.OriginalSystem)]}
+			SystemURL: links[store.IGDBSystemKey(e.OriginalSystem)].URL}
 		if e.Kind != store.KindToolkit {
-			row.GameURL = links[store.IGDBGameKey(e.Game, e.OriginalSystem)]
+			g := links[store.IGDBGameKey(e.Game, e.OriginalSystem)]
+			row.GameURL = g.URL
+			if covers[g.ID] {
+				row.Cover = "covers/" + strconv.FormatInt(g.ID, 10)
+			}
 		}
 		for _, os := range oses.All { // canonical order
 			for _, have := range e.OSes {
@@ -129,6 +140,29 @@ func (s *Server) serveRecomps(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(rows)
+}
+
+// serveCover serves the cached cover of an IGDB game. Covers rarely change, so
+// browsers may keep them for a day.
+func (s *Server) serveCover(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	c, ok, err := s.store.IGDBCover(r.Context(), id)
+	if err != nil {
+		s.log.Err(err).Int64("igdb_id", id).Msg("Failed to load IGDB cover")
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	if !ok || len(c.Data) == 0 || !strings.HasPrefix(c.Mime, "image/") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", c.Mime)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeContent(w, r, "", c.Checked, bytes.NewReader(c.Data))
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -157,7 +191,9 @@ func (g gzipWriter) WriteHeader(code int) {
 
 func gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") || r.Header.Get("Range") != "" {
+		// Pictures are compressed already.
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") || r.Header.Get("Range") != "" ||
+			strings.HasPrefix(r.URL.Path, "/covers/") {
 			next.ServeHTTP(w, r)
 			return
 		}

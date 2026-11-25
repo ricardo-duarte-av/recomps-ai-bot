@@ -85,10 +85,21 @@ CREATE TABLE IF NOT EXISTS detected_cache (
 );
 
 -- IGDB pages of games and original systems, keyed by IGDBGameKey/IGDBSystemKey.
--- An empty url records that IGDB had no match at checked_at.
+-- An empty url records that IGDB had no match at checked_at. igdb_id is the
+-- IGDB game ID of game links (0 for systems, or until it's known).
 CREATE TABLE IF NOT EXISTS igdb_links (
 	key        TEXT PRIMARY KEY,
 	url        TEXT NOT NULL,
+	checked_at INTEGER NOT NULL,
+	igdb_id    INTEGER NOT NULL DEFAULT 0
+);
+
+-- Cover pictures of IGDB games, by IGDB game ID, shown on the web page.
+-- Empty data records that the game had no picture at checked_at.
+CREATE TABLE IF NOT EXISTS igdb_covers (
+	igdb_id    INTEGER PRIMARY KEY,
+	data       BLOB NOT NULL,
+	mime       TEXT NOT NULL,
 	checked_at INTEGER NOT NULL
 );
 
@@ -151,10 +162,24 @@ func Open(path string) (*Store, error) {
 	if err := s.migrateKindCheck(ctx); err != nil {
 		return nil, fmt.Errorf("migrating recomps kind constraint: %w", err)
 	}
+	if err := s.addColumn(ctx, "igdb_links", "igdb_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return nil, fmt.Errorf("adding igdb_links.igdb_id: %w", err)
+	}
 	if err := s.normalizeSystems(ctx); err != nil {
 		return nil, fmt.Errorf("normalizing original systems: %w", err)
 	}
 	return s, nil
+}
+
+// addColumn adds a column to a table created before the column existed.
+func (s *Store) addColumn(ctx context.Context, table, column, def string) error {
+	var n int
+	err := s.DB.QueryRow(ctx, `SELECT COUNT(*) FROM pragma_table_info($1) WHERE name = $2`, table, column).Scan(&n)
+	if err != nil || n > 0 {
+		return err
+	}
+	_, err = s.DB.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, def))
+	return err
 }
 
 // normalizeSystems rewrites stored original systems to their canonical spelling,
@@ -589,42 +614,120 @@ func IGDBGameKey(game, system string) string { return "game\x1f" + game + "\x1f"
 // IGDBSystemKey is the igdb_links key of an original system.
 func IGDBSystemKey(system string) string { return "system\x1f" + system }
 
-// IGDBLink returns the cached IGDB link for key. ok is false if it was never
-// looked up; link is empty if IGDB had no match when it was.
-func (s *Store) IGDBLink(ctx context.Context, key string) (link string, checked time.Time, ok bool, err error) {
-	var at int64
-	err = s.DB.QueryRow(ctx, `SELECT url, checked_at FROM igdb_links WHERE key = $1`, key).Scan(&link, &at)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", time.Time{}, false, nil
-	} else if err != nil {
-		return "", time.Time{}, false, err
-	}
-	return link, time.Unix(at, 0), true, nil
+// IGDBLink is a cached IGDB page.
+type IGDBLink struct {
+	URL string // "" when IGDB had no match
+	// ID is the IGDB game ID of a game page; 0 for systems or when not known yet.
+	ID      int64
+	Checked time.Time
 }
 
-// SetIGDBLink caches the IGDB link for key ("" for no match).
-func (s *Store) SetIGDBLink(ctx context.Context, key, link string) error {
+// IGDBLink returns the cached IGDB link for key. ok is false if it was never looked up.
+func (s *Store) IGDBLink(ctx context.Context, key string) (link IGDBLink, ok bool, err error) {
+	var at int64
+	err = s.DB.QueryRow(ctx, `SELECT url, igdb_id, checked_at FROM igdb_links WHERE key = $1`, key).Scan(&link.URL, &link.ID, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IGDBLink{}, false, nil
+	} else if err != nil {
+		return IGDBLink{}, false, err
+	}
+	link.Checked = time.Unix(at, 0)
+	return link, true, nil
+}
+
+// SetIGDBLink caches the IGDB link for key ("" for no match) and its IGDB game ID
+// (0 when not a game or unknown), checked now.
+func (s *Store) SetIGDBLink(ctx context.Context, key, link string, igdbID int64) error {
 	_, err := s.DB.Exec(ctx, `
-		INSERT INTO igdb_links (key, url, checked_at) VALUES ($1, $2, $3)
-		ON CONFLICT (key) DO UPDATE SET url = excluded.url, checked_at = excluded.checked_at`,
-		key, link, time.Now().Unix())
+		INSERT INTO igdb_links (key, url, igdb_id, checked_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (key) DO UPDATE SET url = excluded.url, igdb_id = excluded.igdb_id, checked_at = excluded.checked_at`,
+		key, link, igdbID, time.Now().Unix())
 	return err
 }
 
+// SetIGDBID records the IGDB game ID of every cached link to the game page link.
+func (s *Store) SetIGDBID(ctx context.Context, link string, igdbID int64) error {
+	_, err := s.DB.Exec(ctx, `UPDATE igdb_links SET igdb_id = $1 WHERE url = $2`, igdbID, link)
+	return err
+}
+
+// IGDBGameID returns the IGDB game ID of a cached game page link, or 0.
+func (s *Store) IGDBGameID(ctx context.Context, link string) (int64, error) {
+	var id int64
+	err := s.DB.QueryRow(ctx, `SELECT igdb_id FROM igdb_links WHERE url = $1 AND igdb_id != 0 LIMIT 1`, link).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
+}
+
 // IGDBLinks returns every cached IGDB link that matched, by key.
-func (s *Store) IGDBLinks(ctx context.Context) (map[string]string, error) {
-	rows, err := s.DB.Query(ctx, `SELECT key, url FROM igdb_links WHERE url != ''`)
+func (s *Store) IGDBLinks(ctx context.Context) (map[string]IGDBLink, error) {
+	rows, err := s.DB.Query(ctx, `SELECT key, url, igdb_id, checked_at FROM igdb_links WHERE url != ''`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]string{}
+	out := map[string]IGDBLink{}
 	for rows.Next() {
-		var k, u string
-		if err := rows.Scan(&k, &u); err != nil {
+		var k string
+		var l IGDBLink
+		var at int64
+		if err := rows.Scan(&k, &l.URL, &l.ID, &at); err != nil {
 			return nil, err
 		}
-		out[k] = u
+		l.Checked = time.Unix(at, 0)
+		out[k] = l
+	}
+	return out, rows.Err()
+}
+
+// IGDBCover is a cached cover picture of an IGDB game.
+type IGDBCover struct {
+	Data    []byte // empty when the game had no picture
+	Mime    string
+	Checked time.Time
+}
+
+// IGDBCover returns the cached cover of IGDB game igdbID. ok is false if it was never fetched.
+func (s *Store) IGDBCover(ctx context.Context, igdbID int64) (c IGDBCover, ok bool, err error) {
+	var at int64
+	err = s.DB.QueryRow(ctx, `SELECT data, mime, checked_at FROM igdb_covers WHERE igdb_id = $1`, igdbID).Scan(&c.Data, &c.Mime, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IGDBCover{}, false, nil
+	} else if err != nil {
+		return IGDBCover{}, false, err
+	}
+	c.Checked = time.Unix(at, 0)
+	return c, true, nil
+}
+
+// SetIGDBCover caches the cover of IGDB game igdbID (empty data for none), checked now.
+func (s *Store) SetIGDBCover(ctx context.Context, igdbID int64, data []byte, mime string) error {
+	if data == nil {
+		data = []byte{}
+	}
+	_, err := s.DB.Exec(ctx, `
+		INSERT INTO igdb_covers (igdb_id, data, mime, checked_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (igdb_id) DO UPDATE SET data = excluded.data, mime = excluded.mime, checked_at = excluded.checked_at`,
+		igdbID, data, mime, time.Now().Unix())
+	return err
+}
+
+// IGDBCoverIDs returns the IGDB game IDs that have a cached cover.
+func (s *Store) IGDBCoverIDs(ctx context.Context) (map[int64]bool, error) {
+	rows, err := s.DB.Query(ctx, `SELECT igdb_id FROM igdb_covers WHERE length(data) > 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
 	}
 	return out, rows.Err()
 }

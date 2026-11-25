@@ -237,37 +237,47 @@ func (c *Client) PlatformURL(ctx context.Context, system string) (string, error)
 }
 
 // GameURL returns the IGDB page of game as released on system, or "" if no
-// IGDB game matches well enough. A title with a parenthetical, like
+// IGDB game matches well enough; see FindGame.
+func (c *Client) GameURL(ctx context.Context, game, system string) (string, error) {
+	g, err := c.FindGame(ctx, game, system)
+	if g == nil || err != nil {
+		return "", err
+	}
+	return g.Link(), nil
+}
+
+// FindGame returns the IGDB game matching game as released on system, or nil
+// if none matches well enough. A title with a parenthetical, like
 // "Serious Sam Classic (The First Encounter)", is retried without it, and one
 // naming several games ("Pokémon Scarlet & Violet", "Gears of War; Gears of
 // War 2") is retried with the first.
-func (c *Client) GameURL(ctx context.Context, game, system string) (string, error) {
+func (c *Client) FindGame(ctx context.Context, game, system string) (*Game, error) {
 	game = strings.TrimSpace(game)
 	if game == "" {
-		return "", nil
+		return nil, nil
 	}
-	link, err := c.gameURL(ctx, game, system)
-	if link != "" || err != nil {
-		return link, err
+	g, err := c.findGame(ctx, game, system)
+	if g != nil || err != nil {
+		return g, err
 	}
 	if before, _, ok := strings.Cut(game, "("); ok && strings.TrimSpace(before) != "" {
 		game = strings.TrimSpace(before)
-		if link, err := c.gameURL(ctx, game, system); link != "" || err != nil {
-			return link, err
+		if g, err := c.findGame(ctx, game, system); g != nil || err != nil {
+			return g, err
 		}
 	}
 	for _, sep := range []string{";", " / ", " & ", " and "} {
 		if first, _, ok := strings.Cut(game, sep); ok && strings.TrimSpace(first) != "" {
-			return c.gameURL(ctx, strings.TrimSpace(first), system)
+			return c.findGame(ctx, strings.TrimSpace(first), system)
 		}
 	}
-	return "", nil
+	return nil, nil
 }
 
-func (c *Client) gameURL(ctx context.Context, game, system string) (string, error) {
+func (c *Client) findGame(ctx context.Context, game, system string) (*Game, error) {
 	all, err := c.Platforms(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	plats, _ := matchSystem(all, system)
 	var ids []string
@@ -275,28 +285,55 @@ func (c *Client) gameURL(ctx context.Context, game, system string) (string, erro
 		ids = append(ids, strconv.Itoa(p.ID))
 	}
 	search := func(where string) ([]Game, error) {
-		q := fmt.Sprintf(`search "%s"; fields name,slug,url,platforms,version_parent,total_rating_count,alternative_names.name; %slimit 25;`, escape(game), where)
+		q := fmt.Sprintf(`search "%s"; fields id,name,slug,url,platforms,version_parent,total_rating_count,alternative_names.name; %slimit 25;`, escape(game), where)
 		var games []Game
 		return games, c.query(ctx, "games", q, &games)
 	}
 	if len(ids) > 0 {
 		games, err := search("where platforms = (" + strings.Join(ids, ",") + "); ")
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if g := bestGame(games, game, false); g != nil {
-			return g.Link(), nil
+			return g, nil
 		}
 	}
 	// Unknown system, or IGDB doesn't list the game on it: accept only an exact title.
 	games, err := search("")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if g := bestGame(games, game, true); g != nil {
-		return g.Link(), nil
+	return bestGame(games, game, true), nil
+}
+
+// GameID returns the IGDB ID of the game at an IGDB game page, or 0 if there's none.
+func (c *Client) GameID(ctx context.Context, pageURL string) (int64, error) {
+	kind, slug := pageSlug(pageURL)
+	if kind != "games" {
+		return 0, nil
 	}
-	return "", nil
+	var games []struct {
+		ID int64 `json:"id"`
+	}
+	q := fmt.Sprintf(`fields id; where slug = "%s"; limit 1;`, escape(slug))
+	if err := c.query(ctx, "games", q, &games); err != nil || len(games) == 0 {
+		return 0, err
+	}
+	return games[0].ID, nil
+}
+
+// pageSlug splits an IGDB page URL like https://www.igdb.com/games/medievil
+// into its kind ("games", "platforms") and slug; both are "" if it isn't one.
+func pageSlug(pageURL string) (kind, slug string) {
+	u, err := url.Parse(pageURL)
+	if err != nil {
+		return "", ""
+	}
+	kind, slug, ok := strings.Cut(strings.Trim(u.Path, "/"), "/")
+	if !ok || slug == "" || strings.Contains(slug, "/") {
+		return "", ""
+	}
+	return kind, slug
 }
 
 // escape makes s safe inside a double-quoted Apicalypse string.
@@ -379,44 +416,10 @@ const (
 // the game it's a version or part of, else official artwork, else a
 // screenshot; for a platform its logo. It returns "" when there's none.
 func (c *Client) ImageURL(ctx context.Context, pageURL string) (string, error) {
-	u, err := url.Parse(pageURL)
-	if err != nil {
-		return "", nil
-	}
-	kind, slug, ok := strings.Cut(strings.Trim(u.Path, "/"), "/")
-	if !ok || slug == "" || strings.Contains(slug, "/") {
-		return "", nil
-	}
+	kind, slug := pageSlug(pageURL)
 	switch kind {
 	case "games":
-		var games []struct {
-			Cover         *imageRef  `json:"cover"`
-			Artworks      []imageRef `json:"artworks"`
-			Screenshots   []imageRef `json:"screenshots"`
-			VersionParent *struct {
-				Cover *imageRef `json:"cover"`
-			} `json:"version_parent"`
-			ParentGame *struct {
-				Cover *imageRef `json:"cover"`
-			} `json:"parent_game"`
-		}
-		q := fmt.Sprintf(`fields cover.image_id,artworks.image_id,screenshots.image_id,version_parent.cover.image_id,parent_game.cover.image_id; where slug = "%s"; limit 1;`, escape(slug))
-		if err := c.query(ctx, "games", q, &games); err != nil || len(games) == 0 {
-			return "", err
-		}
-		g := games[0]
-		switch {
-		case g.Cover != nil && g.Cover.ImageID != "":
-			return imageLink(sizeCover, g.Cover.ImageID, "jpg"), nil
-		case g.VersionParent != nil && g.VersionParent.Cover != nil && g.VersionParent.Cover.ImageID != "":
-			return imageLink(sizeCover, g.VersionParent.Cover.ImageID, "jpg"), nil
-		case g.ParentGame != nil && g.ParentGame.Cover != nil && g.ParentGame.Cover.ImageID != "":
-			return imageLink(sizeCover, g.ParentGame.Cover.ImageID, "jpg"), nil
-		case len(g.Artworks) > 0 && g.Artworks[0].ImageID != "":
-			return imageLink(sizeScreenshot, g.Artworks[0].ImageID, "jpg"), nil
-		case len(g.Screenshots) > 0 && g.Screenshots[0].ImageID != "":
-			return imageLink(sizeScreenshot, g.Screenshots[0].ImageID, "jpg"), nil
-		}
+		return c.gameImageURL(ctx, fmt.Sprintf(`slug = "%s"`, escape(slug)))
 	case "platforms":
 		var plats []struct {
 			Logo *imageRef `json:"platform_logo"`
@@ -432,6 +435,39 @@ func (c *Client) ImageURL(ctx context.Context, pageURL string) (string, error) {
 	return "", nil
 }
 
+// gameImageURL picks the best picture of the game matching the where clause; see ImageURL.
+func (c *Client) gameImageURL(ctx context.Context, where string) (string, error) {
+	var games []struct {
+		Cover         *imageRef  `json:"cover"`
+		Artworks      []imageRef `json:"artworks"`
+		Screenshots   []imageRef `json:"screenshots"`
+		VersionParent *struct {
+			Cover *imageRef `json:"cover"`
+		} `json:"version_parent"`
+		ParentGame *struct {
+			Cover *imageRef `json:"cover"`
+		} `json:"parent_game"`
+	}
+	q := `fields cover.image_id,artworks.image_id,screenshots.image_id,version_parent.cover.image_id,parent_game.cover.image_id; where ` + where + `; limit 1;`
+	if err := c.query(ctx, "games", q, &games); err != nil || len(games) == 0 {
+		return "", err
+	}
+	g := games[0]
+	switch {
+	case g.Cover != nil && g.Cover.ImageID != "":
+		return imageLink(sizeCover, g.Cover.ImageID, "jpg"), nil
+	case g.VersionParent != nil && g.VersionParent.Cover != nil && g.VersionParent.Cover.ImageID != "":
+		return imageLink(sizeCover, g.VersionParent.Cover.ImageID, "jpg"), nil
+	case g.ParentGame != nil && g.ParentGame.Cover != nil && g.ParentGame.Cover.ImageID != "":
+		return imageLink(sizeCover, g.ParentGame.Cover.ImageID, "jpg"), nil
+	case len(g.Artworks) > 0 && g.Artworks[0].ImageID != "":
+		return imageLink(sizeScreenshot, g.Artworks[0].ImageID, "jpg"), nil
+	case len(g.Screenshots) > 0 && g.Screenshots[0].ImageID != "":
+		return imageLink(sizeScreenshot, g.Screenshots[0].ImageID, "jpg"), nil
+	}
+	return "", nil
+}
+
 func imageLink(size, imageID, ext string) string {
 	return imageBaseURL + size + "/" + url.PathEscape(imageID) + "." + ext
 }
@@ -443,6 +479,26 @@ func (c *Client) Image(ctx context.Context, pageURL string) (*Image, error) {
 	if err != nil || link == "" {
 		return nil, err
 	}
+	// IGDB numbers repeated slugs ("medievil--1"); the file name doesn't need that.
+	_, slug := pageSlug(pageURL)
+	if base, _, ok := strings.Cut(slug, "--"); ok && base != "" {
+		slug = base
+	}
+	return c.download(ctx, link, slug)
+}
+
+// GameImage downloads the best picture of IGDB game id (see ImageURL). It
+// returns nil when there's no picture.
+func (c *Client) GameImage(ctx context.Context, id int64) (*Image, error) {
+	link, err := c.gameImageURL(ctx, "id = "+strconv.FormatInt(id, 10))
+	if err != nil || link == "" {
+		return nil, err
+	}
+	return c.download(ctx, link, "igdb-"+strconv.FormatInt(id, 10))
+}
+
+// download fetches an IGDB image, naming it name plus the link's extension.
+func (c *Client) download(ctx context.Context, link, name string) (*Image, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
 		return nil, err
@@ -466,10 +522,8 @@ func (c *Client) Image(ctx context.Context, pageURL string) (*Image, error) {
 	if !strings.HasPrefix(mime, "image/") {
 		return nil, fmt.Errorf("IGDB image %s is %s, not an image", link, mime)
 	}
-	// IGDB numbers repeated slugs ("medievil--1"); the file name doesn't need that.
-	slug := pageURL[strings.LastIndex(strings.TrimRight(pageURL, "/"), "/")+1:]
-	if base, _, ok := strings.Cut(slug, "--"); ok && base != "" {
-		slug = base
+	if name == "" {
+		name = "image"
 	}
-	return &Image{Data: data, MimeType: mime, FileName: slug + link[strings.LastIndex(link, "."):]}, nil
+	return &Image{Data: data, MimeType: mime, FileName: name + link[strings.LastIndex(link, "."):]}, nil
 }
