@@ -3,6 +3,7 @@ package igdb
 import (
 	"context"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -25,6 +26,18 @@ type Linker struct {
 	store  *store.Store
 	log    zerolog.Logger
 	kick   chan struct{}
+	stats  stats
+}
+
+// stats counts what the linker fetched from IGDB, for the sync summary.
+type stats struct {
+	linked, unmatched, ids, covers, noPicture, coverFailed atomic.Int32
+}
+
+func (s *stats) reset() {
+	for _, c := range []*atomic.Int32{&s.linked, &s.unmatched, &s.ids, &s.covers, &s.noPicture, &s.coverFailed} {
+		c.Store(0)
+	}
 }
 
 func NewLinker(c *Client, st *store.Store, log zerolog.Logger) *Linker {
@@ -45,7 +58,7 @@ func (l *Linker) Links(ctx context.Context, game, system string) (gameURL, syste
 }
 
 func (l *Linker) links(ctx context.Context, game, system string) (gameURL, systemURL string, err error) {
-	sys, err := l.cached(ctx, store.IGDBSystemKey(system), func() (string, int64, error) {
+	sys, err := l.cached(ctx, store.IGDBSystemKey(system), "", system, func() (string, int64, error) {
 		link, err := l.client.PlatformURL(ctx, system)
 		return link, 0, err
 	})
@@ -59,7 +72,7 @@ func (l *Linker) links(ctx context.Context, game, system string) (gameURL, syste
 // game returns the cached IGDB page and ID of game as released on system,
 // resolving them when missing.
 func (l *Linker) game(ctx context.Context, game, system string) (store.IGDBLink, error) {
-	link, err := l.cached(ctx, store.IGDBGameKey(game, system), func() (string, int64, error) {
+	link, err := l.cached(ctx, store.IGDBGameKey(game, system), game, system, func() (string, int64, error) {
 		g, err := l.client.FindGame(ctx, game, system)
 		if g == nil || err != nil {
 			return "", 0, err
@@ -73,12 +86,18 @@ func (l *Linker) game(ctx context.Context, game, system string) (store.IGDBLink,
 	if link.ID, err = l.client.GameID(ctx, link.URL); err != nil || link.ID == 0 {
 		return link, err
 	}
-	return link, l.store.SetIGDBID(ctx, link.URL, link.ID)
+	if err := l.store.SetIGDBID(ctx, link.URL, link.ID); err != nil {
+		return link, err
+	}
+	l.stats.ids.Add(1)
+	l.log.Info().Str("game", game).Str("system", system).Int64("igdb_id", link.ID).Msg("Found IGDB game ID")
+	return link, nil
 }
 
 // cached returns the stored link for k, resolving and storing it when missing
-// or when an earlier miss is old enough to retry. Errors aren't cached.
-func (l *Linker) cached(ctx context.Context, k string, resolve func() (string, int64, error)) (store.IGDBLink, error) {
+// or when an earlier miss is old enough to retry. Errors aren't cached. game
+// (empty for a system) and system are for the log.
+func (l *Linker) cached(ctx context.Context, k, game, system string, resolve func() (string, int64, error)) (store.IGDBLink, error) {
 	link, ok, err := l.store.IGDBLink(ctx, k)
 	if err != nil {
 		return store.IGDBLink{}, err
@@ -90,13 +109,36 @@ func (l *Linker) cached(ctx context.Context, k string, resolve func() (string, i
 	if err != nil {
 		return store.IGDBLink{}, err
 	}
-	return store.IGDBLink{URL: u, ID: id, Checked: time.Now()}, l.store.SetIGDBLink(ctx, k, u, id)
+	if err := l.store.SetIGDBLink(ctx, k, u, id); err != nil {
+		return store.IGDBLink{}, err
+	}
+	what := "game"
+	if game == "" {
+		what = "system"
+	}
+	if u != "" {
+		l.stats.linked.Add(1)
+		ev := l.log.Info().Str("system", system).Str("url", u)
+		if game != "" {
+			ev = ev.Str("game", game).Int64("igdb_id", id)
+		}
+		ev.Msg("Linked " + what + " to IGDB")
+	} else {
+		l.stats.unmatched.Add(1)
+		ev := l.log.Info().Str("system", system).Str("retry_after", missRetry.String())
+		if game != "" {
+			ev = ev.Str("game", game)
+		}
+		ev.Msg("No IGDB match for " + what)
+	}
+	return store.IGDBLink{URL: u, ID: id, Checked: time.Now()}, nil
 }
 
 // cover returns the cached picture of IGDB game id, downloading and storing it
 // when missing or when an earlier miss is old enough to retry. It returns nil
 // when the game has no picture.
-func (l *Linker) cover(ctx context.Context, id int64) (*Image, error) {
+// game is for the log.
+func (l *Linker) cover(ctx context.Context, id int64, game string) (*Image, error) {
 	c, ok, err := l.store.IGDBCover(ctx, id)
 	if err != nil {
 		return nil, err
@@ -107,11 +149,15 @@ func (l *Linker) cover(ctx context.Context, id int64) (*Image, error) {
 			return nil, err
 		}
 		if img == nil {
+			l.stats.noPicture.Add(1)
+			l.log.Info().Str("game", game).Int64("igdb_id", id).Str("retry_after", missRetry.String()).Msg("IGDB has no picture for game")
 			return nil, l.store.SetIGDBCover(ctx, id, nil, "")
 		}
 		if err := l.store.SetIGDBCover(ctx, id, img.Data, img.MimeType); err != nil {
 			return nil, err
 		}
+		l.stats.covers.Add(1)
+		l.log.Info().Str("game", game).Int64("igdb_id", id).Int("bytes", len(img.Data)).Msg("Cached IGDB cover")
 		c = store.IGDBCover{Data: img.Data, Mime: img.MimeType}
 	}
 	if len(c.Data) == 0 {
@@ -138,6 +184,7 @@ func (l *Linker) Kick() {
 // Run links every entry in the list at start, then hourly and when kicked,
 // until ctx is cancelled.
 func (l *Linker) Run(ctx context.Context) {
+	l.log.Info().Str("interval", syncInterval.String()).Msg("IGDB linking started")
 	t := time.NewTicker(syncInterval)
 	defer t.Stop()
 	for {
@@ -159,6 +206,10 @@ func (l *Linker) sync(ctx context.Context) {
 		l.log.Warn().Err(err).Msg("Failed to load entries for IGDB linking")
 		return
 	}
+	start := time.Now()
+	l.stats.reset()
+	done := 0
+	defer func() { l.logSummary(len(entries), done, time.Since(start)) }()
 	for _, e := range entries {
 		game := e.Game
 		if e.Kind == store.KindToolkit {
@@ -171,7 +222,27 @@ func (l *Linker) sync(ctx context.Context) {
 			}
 			return
 		}
+		done++
 	}
+}
+
+// logSummary reports a sync round: at info level when it fetched anything or
+// stopped early, else at debug level.
+func (l *Linker) logSummary(total, done int, took time.Duration) {
+	st := &l.stats
+	fetched := st.linked.Load() + st.unmatched.Load() + st.ids.Load() + st.covers.Load() + st.noPicture.Load() + st.coverFailed.Load()
+	ev := l.log.Debug()
+	msg := "IGDB sync finished; nothing new"
+	switch {
+	case done < total:
+		ev, msg = l.log.Info(), "IGDB sync stopped early"
+	case fetched > 0:
+		ev, msg = l.log.Info(), "IGDB sync finished"
+	}
+	ev.Int("entries", total).Int("checked", done).
+		Int32("linked", st.linked.Load()).Int32("unmatched", st.unmatched.Load()).Int32("ids_found", st.ids.Load()).
+		Int32("covers_cached", st.covers.Load()).Int32("no_picture", st.noPicture.Load()).Int32("cover_failures", st.coverFailed.Load()).
+		Str("took", took.Round(time.Second).String()).Msg(msg)
 }
 
 func (l *Linker) syncEntry(ctx context.Context, game, system string) error {
@@ -183,8 +254,9 @@ func (l *Linker) syncEntry(ctx context.Context, game, system string) error {
 		return err
 	}
 	// A picture that fails to download doesn't hold up linking the other entries.
-	if _, err := l.cover(ctx, g.ID); err != nil && ctx.Err() == nil {
-		l.log.Warn().Err(err).Int64("igdb_id", g.ID).Msg("Failed to cache IGDB cover; retrying later")
+	if _, err := l.cover(ctx, g.ID, game); err != nil && ctx.Err() == nil {
+		l.stats.coverFailed.Add(1)
+		l.log.Warn().Err(err).Str("game", game).Int64("igdb_id", g.ID).Msg("Failed to cache IGDB cover; retrying later")
 	}
 	return ctx.Err()
 }
@@ -199,7 +271,7 @@ func (l *Linker) Image(ctx context.Context, pageURL string) (*Image, error) {
 	if id, err := l.store.IGDBGameID(ctx, pageURL); err != nil {
 		return nil, err
 	} else if id != 0 {
-		return l.cover(ctx, id)
+		return l.cover(ctx, id, "")
 	}
 	return l.client.Image(ctx, pageURL)
 }
