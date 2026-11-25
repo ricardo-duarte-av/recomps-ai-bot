@@ -79,7 +79,9 @@ func (c *Client) FindRepos(text string) []Repo { return FindRepos(text, c.HostTy
 // FindRepo finds the first repository URL in text using this client's host configuration.
 func (c *Client) FindRepo(text string) (Repo, bool) { return FindRepo(text, c.HostType) }
 
-// FetchReadme returns the repository's README (truncated to MaxReadmeBytes).
+// FetchReadme returns the repository's README (truncated to MaxReadmeBytes),
+// preceded by its short description ("Repository description: ...") when the
+// forge has one.
 // Hosts of unknown type are probed as Gitea/Forgejo, then GitLab, then by
 // guessing raw file URLs, and finally by reading the repository's web page.
 func (c *Client) FetchReadme(ctx context.Context, r Repo) (string, error) {
@@ -115,6 +117,21 @@ func (c *Client) FetchReadme(ctx context.Context, r Repo) (string, error) {
 		return "", errs[0]
 	}
 	return "", fmt.Errorf("couldn't find a README for %s", r.WebURL())
+}
+
+// withAbout puts a repository's short description (GitHub's "About") before its
+// README, since the README alone may not name the game clearly. Either may be
+// empty. The README is cut so the whole stays within MaxReadmeBytes.
+func withAbout(about, readme string) string {
+	about = strings.TrimSpace(about)
+	if about == "" {
+		return readme
+	}
+	head := "Repository description: " + about + "\n\n"
+	if strings.TrimSpace(readme) == "" {
+		return head
+	}
+	return head + "README:\n" + readme
 }
 
 func truncate(s string, n int) string {
@@ -173,12 +190,24 @@ func (c *Client) github(ctx context.Context, r Repo, token string) (string, erro
 	if token != "" {
 		headers["Authorization"] = "Bearer " + token
 	}
-	u := fmt.Sprintf("%s/repos/%s/%s/readme", api, url.PathEscape(r.Owner()), url.PathEscape(r.Name()))
-	body, _, err := c.get(ctx, u, headers, MaxReadmeBytes)
+	base := fmt.Sprintf("%s/repos/%s/%s", api, url.PathEscape(r.Owner()), url.PathEscape(r.Name()))
+	// The description is best effort: a README alone is still worth classifying.
+	var repo struct {
+		Description string `json:"description"`
+	}
+	jsonHeaders := map[string]string{"X-GitHub-Api-Version": "2022-11-28"}
+	if token != "" {
+		jsonHeaders["Authorization"] = "Bearer " + token
+	}
+	_ = c.getJSON(ctx, base, jsonHeaders, &repo)
+	body, _, err := c.get(ctx, base+"/readme", headers, MaxReadmeBytes)
 	if err != nil {
+		if repo.Description != "" && errors.Is(err, errSkip) {
+			return withAbout(repo.Description, ""), nil // no README, but the description says something
+		}
 		return "", fmt.Errorf("GitHub: %w", err)
 	}
-	return string(body), nil
+	return withAbout(repo.Description, string(body)), nil
 }
 
 // --- GitLab (gitlab.com and self-hosted) ---
@@ -192,6 +221,7 @@ func (c *Client) gitlab(ctx context.Context, r Repo, token string) (string, erro
 		ID            int    `json:"id"`
 		DefaultBranch string `json:"default_branch"`
 		ReadmeURL     string `json:"readme_url"`
+		Description   string `json:"description"`
 	}
 	u := fmt.Sprintf("https://%s/api/v4/projects/%s", r.Host, url.PathEscape(r.Path))
 	if err := c.getJSON(ctx, u, headers, &project); err != nil {
@@ -201,6 +231,9 @@ func (c *Client) gitlab(ctx context.Context, r Repo, token string) (string, erro
 		return "", errSkip
 	}
 	if project.ReadmeURL == "" {
+		if strings.TrimSpace(project.Description) != "" {
+			return withAbout(project.Description, ""), nil
+		}
 		return "", fmt.Errorf("GitLab project %s has no README", r.WebURL())
 	}
 	// readme_url is the web blob URL, e.g. https://host/group/repo/-/blob/main/README.md
@@ -208,7 +241,7 @@ func (c *Client) gitlab(ctx context.Context, r Repo, token string) (string, erro
 	if !ok {
 		raw := strings.Replace(project.ReadmeURL, "/-/blob/", "/-/raw/", 1)
 		body, _, err := c.get(ctx, raw, headers, MaxReadmeBytes)
-		return string(body), err
+		return withAbout(project.Description, string(body)), err
 	}
 	rawURL := fmt.Sprintf("https://%s/api/v4/projects/%d/repository/files/%s/raw?ref=%s",
 		r.Host, project.ID, url.PathEscape(file), url.QueryEscape(project.DefaultBranch))
@@ -216,7 +249,7 @@ func (c *Client) gitlab(ctx context.Context, r Repo, token string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("GitLab: %w", err)
 	}
-	return string(body), nil
+	return withAbout(project.Description, string(body)), nil
 }
 
 // --- Gitea / Forgejo (codeberg.org, gitea.com and self-hosted) ---
@@ -233,6 +266,7 @@ func (c *Client) gitea(ctx context.Context, r Repo, token string) (string, error
 	var repo struct {
 		FullName      string `json:"full_name"`
 		DefaultBranch string `json:"default_branch"`
+		Description   string `json:"description"`
 	}
 	if err := c.getJSON(ctx, base, headers, &repo); err != nil {
 		return "", err
@@ -258,13 +292,16 @@ func (c *Client) gitea(ctx context.Context, r Repo, token string) (string, error
 		}
 	}
 	if best == "" {
+		if strings.TrimSpace(repo.Description) != "" {
+			return withAbout(repo.Description, ""), nil
+		}
 		return "", fmt.Errorf("Gitea/Forgejo repository %s has no README", r.WebURL())
 	}
 	body, _, err := c.get(ctx, best, headers, MaxReadmeBytes)
 	if err != nil {
 		return "", fmt.Errorf("Gitea/Forgejo: %w", err)
 	}
-	return string(body), nil
+	return withAbout(repo.Description, string(body)), nil
 }
 
 // readmeRank orders README file names by preference (lower is better); 99 = not a README.

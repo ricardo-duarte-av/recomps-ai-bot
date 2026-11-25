@@ -118,14 +118,18 @@ For add/remove, leave titles and systems empty, list_all and count false and gro
 ` // osRules appended at runtime
 
 const readmePrompt = `You read the README (or, if no README was found, the web page) of a git repository that is a recompilation ("recomp", static recompilation / port of a game binary), a decompilation ("decomp", matching or non-matching source reconstruction) or a reimplementation ("reimpl", new code rebuilt from reverse-engineered behaviour and formats) of a video game, or a toolkit used to make them ("toolkit").
+The text may start with the repository's short description from its git host ("Repository description: ..."). Use it together with the README; when the README is terse or only uses internal names (ROM header titles like "DRACULA AGB1", code names), the description usually names the game properly.
 Extract:
-- game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask"). "" for a toolkit.
+- game: the full official title of the original game (e.g. "Pokémon Emerald", "The Legend of Zelda: Majora's Mask"), never an internal ROM/header name or code name. "" for a toolkit.
 - original_system: the original console/platform (e.g. "Game Boy Advance", "Nintendo 64", "Xbox 360"); for a toolkit, the console whose games it works on. Use the matching name from the canonical original systems below, copied exactly; only if none fits, use the full common name. Nintendo Switch 2 (including "Nintendo Switch 2 Edition" releases) is "Nintendo Switch 2", not "Nintendo Switch".
 - kind: "recomp" if it is a recompilation/port produced by recompiling the original binary, "decomp" if it is a decompilation project, "reimpl" if it is a reimplementation: the game rebuilt as new code from reverse-engineered behaviour and file formats, without decompiling or recompiling the original binary (e.g. OpenMW, OpenRCT2); "toolkit" if it is not a port of one game but a static recompiler, decompilation tooling or runtime for making recomps/decomps of many games of one console (e.g. N64Recomp, ps3recomp, PS2Recomp, decomp-toolkit).
-- oses: platforms (operating systems or consoles/handhelds) on which the resulting game (for a toolkit: the toolkit itself) runs natively, as stated by the README (supported platforms, release downloads, build instructions). If the README only describes building the original ROM (a matching decomp) and no native port, return [].
+- oses: platforms (operating systems or consoles/handhelds) on which the resulting game (for a toolkit: the toolkit itself) runs natively, as stated by the README (supported platforms, release downloads, build instructions). For a decomp that only rebuilds the original ROM/executable (a matching decomp, no native port), list the operating systems its build instructions support (e.g. Linux, macOS, Windows/WSL); if they don't say, return [] and the bot will assume all desktop systems.
 If the README does not say, use "" or [].
 - in_scope: true only if this repository is a recompilation, decompilation, reimplementation or source port of one specific video game, or a toolkit as described above. False for emulators, general-purpose libraries, mods/randomizers/romhacks, launchers, game engines not tied to one game, and unrelated software.
 ` // osRules appended at runtime
+
+// DecompDefaultOSes are the platforms of a decomp whose README names none.
+var DecompDefaultOSes = []string{"windows", "linux", "macos"}
 
 var systemRules = "\nCanonical original systems: " + strings.Join(systems.Canonical, "; ") + "."
 
@@ -230,7 +234,11 @@ func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) 
 		"oses":            osesProp("Platforms (OSes or consoles) the result runs on natively"),
 	})
 	var out RepoInfo
-	user := "Repository: " + repoURL + "\n\nREADME:\n" + readme
+	user := "Repository: " + repoURL + "\n\n"
+	if !strings.HasPrefix(readme, "Repository description: ") {
+		user += "README:\n" // otherwise the forge already labelled the parts
+	}
+	user += readme
 	if err := c.complete(ctx, readmePrompt+osRules+systemRules, user, "repo_info", schema, &out); err != nil {
 		return nil, err
 	}
@@ -238,6 +246,11 @@ func (c *Client) ExtractFromReadme(ctx context.Context, repoURL, readme string) 
 	out.OriginalSystem = systems.Normalize(out.OriginalSystem)
 	if out.Kind == store.KindToolkit {
 		out.Game = ""
+	}
+	if out.Kind == store.KindDecomp && len(out.OSes) == 0 {
+		// Decomps are source code: they build on any desktop system even when the
+		// README doesn't say so (e.g. matching decomps that only rebuild the ROM).
+		out.OSes = slices.Clone(DecompDefaultOSes)
 	}
 	return &out, nil
 }

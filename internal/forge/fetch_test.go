@@ -63,14 +63,14 @@ func TestFetchGitLab(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id":42,"default_branch":"main","readme_url":"https://` + host + `/group/sub/repo/-/blob/main/README.md"}`))
+		w.Write([]byte(`{"id":42,"default_branch":"main","description":"Decompilation of Some Game (GBA)","readme_url":"https://` + host + `/group/sub/repo/-/blob/main/README.md"}`))
 	})
 	mux.HandleFunc("/api/v4/projects/42/repository/files/README.md/raw", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("# GitLab readme"))
 	})
 	c, h := newTestForge(t, mux)
 	host = h
-	if got := fetch(t, c, "https://"+host+"/group/sub/repo/-/tree/main"); got != "# GitLab readme" {
+	if got := fetch(t, c, "https://"+host+"/group/sub/repo/-/tree/main"); got != "Repository description: Decompilation of Some Game (GBA)\n\nREADME:\n# GitLab readme" {
 		t.Errorf("got %q", got)
 	}
 }
