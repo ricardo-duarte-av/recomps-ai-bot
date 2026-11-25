@@ -51,7 +51,58 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 		return
 	}
 	log.Debug().Interface("intent", intent).Str("text", text).Msg("Parsed intent")
+	b.dispatch(ctx, evt, text, intent)
+}
 
+// handleKeyword handles a message that contains one of matrix.keywords without
+// mentioning the bot. Unlike a mention, it's only answered (and marked with the
+// progress reactions) when it's a real request; otherwise it's treated like any
+// other message and only checked for repository links.
+func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) {
+	log := zerolog.Ctx(ctx)
+	if cmd, ok := parseExtraCommand(text); ok {
+		ctx, prog := b.startWork(ctx, evt)
+		defer prog.finish(ctx)
+		b.handleExtra(ctx, evt, cmd)
+		return
+	}
+	known, err := b.store.Games(ctx)
+	if err != nil {
+		log.Err(err).Msg("Failed to list games")
+		return
+	}
+	intent, err := b.llm.ParseIntent(ctx, text, known)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to parse intent of keyword message; ignoring it")
+		return
+	}
+	log.Debug().Interface("intent", intent).Str("text", text).Msg("Parsed intent of keyword message")
+	if !isRequest(intent) {
+		if b.cfg.Detect.IsEnabled() {
+			b.detectLinks(evt, text)
+		}
+		return
+	}
+	log.Info().Str("intent", intent.Intent).Msg("Acting on keyword message")
+	ctx, prog := b.startWork(ctx, evt)
+	defer prog.finish(ctx)
+	b.dispatch(ctx, evt, text, intent)
+}
+
+// isRequest reports whether intent asks the bot to do something, rather than
+// being chatter that would only get the help text.
+func isRequest(intent *llm.Intent) bool {
+	switch intent.Intent {
+	case "add", "remove", "complex_query":
+		return true
+	case "query":
+		return intent.RepoURL != "" || intent.HasFilter() || intent.ListAll || intent.Count || intent.GroupBy != ""
+	}
+	return false
+}
+
+// dispatch carries out a parsed request.
+func (b *Bot) dispatch(ctx context.Context, evt *event.Event, text string, intent *llm.Intent) {
 	switch intent.Intent {
 	case "add":
 		b.handleAdd(ctx, evt, text, intent)

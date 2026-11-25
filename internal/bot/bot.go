@@ -181,16 +181,25 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 	if content.MsgType != event.MsgText && content.MsgType != event.MsgNotice {
 		return
 	}
-	if content.MsgType == event.MsgNotice || !b.isMentioned(content) {
+	// A reply to the bot's own message carries the bot in m.mentions (clients add
+	// the replied-to sender) and in the quoted fallback. Such replies are usually
+	// people talking about the answer, so they only count as requests when the bot
+	// is named in the new text itself, and keywords don't apply.
+	replyToBot := content.RelatesTo.GetReplyTo() != "" && content.Mentions != nil && content.Mentions.Has(b.userID)
+	content.RemoveReplyFallback()
+	mentioned := content.MsgType != event.MsgNotice && b.isMentioned(content, !replyToBot)
+	keyword := !mentioned && !replyToBot && content.MsgType != event.MsgNotice && b.hasKeyword(content.Body)
+	if !mentioned && !keyword {
 		// Not a command: just watch for repository links (notices too, e.g. feed bots).
 		if b.cfg.Detect.IsEnabled() {
-			content.RemoveReplyFallback()
 			b.detectLinks(evt, content.Body)
 		}
 		return
 	}
-	content.RemoveReplyFallback()
-	text := b.stripMention(content.Body)
+	text := content.Body
+	if mentioned {
+		text = b.stripMention(text)
+	}
 	if text == "" {
 		return
 	}
@@ -200,14 +209,31 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 		defer cancel()
 		log := b.log.With().Stringer("room", evt.RoomID).Stringer("sender", evt.Sender).Stringer("event", evt.ID).Logger()
 		ctx = log.WithContext(ctx)
+		if keyword {
+			b.handleKeyword(ctx, evt, text)
+			return
+		}
 		ctx, prog := b.startWork(ctx, evt)
 		defer prog.finish(ctx)
 		b.handleCommand(ctx, evt, text)
 	}()
 }
 
-func (b *Bot) isMentioned(content *event.MessageEventContent) bool {
-	if content.Mentions != nil && content.Mentions.Has(b.userID) {
+// hasKeyword reports whether body contains one of matrix.keywords as a whole word.
+func (b *Bot) hasKeyword(body string) bool {
+	body = strings.ToLower(body)
+	for _, k := range b.cfg.Matrix.Keywords {
+		if containsWord(body, strings.ToLower(strings.TrimSpace(k))) {
+			return true
+		}
+	}
+	return false
+}
+
+// isMentioned reports whether the message addresses the bot. trustMentions is
+// false for replies to the bot, whose m.mentions lists it automatically.
+func (b *Bot) isMentioned(content *event.MessageEventContent, trustMentions bool) bool {
+	if trustMentions && content.Mentions != nil && content.Mentions.Has(b.userID) {
 		return true
 	}
 	body := strings.ToLower(content.Body)

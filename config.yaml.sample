@@ -22,6 +22,10 @@ matrix:
   # Optional room (ID or alias) where the bot announces every new entry added to
   # the list. It doesn't need to be in allowed_rooms; the bot only posts there.
   announce_room: ""
+  # Optional words that make the bot act on a message without being mentioned,
+  # e.g. ["!recomp"]. Matched as whole words, ignoring case. Messages that only
+  # contain a keyword but aren't a request (a search, an add...) are ignored.
+  keywords: []
 
 openai:
   api_key: "sk-..."

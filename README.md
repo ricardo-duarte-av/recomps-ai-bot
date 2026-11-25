@@ -2,7 +2,9 @@
 
 A Matrix bot that keeps a list of game **recomps** (static recompilations / native ports), **decomps** (decompilation projects) and **reimpls** (reimplementations), plus the **toolkits** used to make them (static recompilers, decompilation tooling and runtimes for a console, e.g. N64Recomp), and answers questions about it. It uses a lightweight OpenAI model (default `gpt-5-mini`) to understand messages and read repository READMEs. Works in encrypted and unencrypted rooms.
 
-The bot only reacts when it's **explicitly mentioned**, and only in the rooms listed in `config.yaml`. It answers with Matrix replies to the message it's answering; set `matrix.answer_with_reply: false` to send regular messages instead.
+The bot only reacts when it's **explicitly mentioned** (or a message contains one of the optional `matrix.keywords`, see below), and only in the rooms listed in `config.yaml`. Replying to one of the bot's messages doesn't count as mentioning it, even though Matrix clients mark replies that way: a reply is only answered when its own text names the bot (e.g. `RecompBot: and for Mario?`). It answers with Matrix replies to the message it's answering; set `matrix.answer_with_reply: false` to send regular messages instead.
+
+**Keywords:** `matrix.keywords` (e.g. `["!recomp"]`) lists words that make the bot act on a message without a mention, matched as whole words in any case. Since such messages may just be chat, the bot only answers them when they're a real request (a search, count, add, remove...); anything else gets no reply, no reactions, and is only checked for repository links as usual. Each keyword message costs one AI call to tell the two apart, so pick keywords that don't come up in ordinary conversation. Keywords are ignored in replies to the bot's own messages.
 
 ## Usage
 

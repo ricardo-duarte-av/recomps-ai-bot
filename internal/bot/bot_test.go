@@ -3,6 +3,9 @@ package bot
 import (
 	"testing"
 
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/llm"
+
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
@@ -20,7 +23,7 @@ func TestIsMentioned(t *testing.T) {
 		{Body: "x", Mentions: &event.Mentions{UserIDs: []id.UserID{"@recompbot:example.org"}}},
 	}
 	for _, c := range yes {
-		if !b.isMentioned(c) {
+		if !b.isMentioned(c, true) {
 			t.Errorf("expected mention in %q", c.Body)
 		}
 	}
@@ -29,7 +32,7 @@ func TestIsMentioned(t *testing.T) {
 		{Body: "recompbots are cool"},
 	}
 	for _, c := range no {
-		if b.isMentioned(c) {
+		if b.isMentioned(c, true) {
 			t.Errorf("unexpected mention in %q", c.Body)
 		}
 	}
@@ -55,5 +58,63 @@ func TestClassifyReaction(t *testing.T) {
 	}
 	if c, x := classifyReaction("🎉"); c || x {
 		t.Error("🎉 should be ignored")
+	}
+}
+
+// TestReplyToBot checks that a reply to the bot, which clients mark as
+// mentioning it, isn't taken as addressed to the bot unless the new text names it.
+func TestReplyToBot(t *testing.T) {
+	b := testBot()
+	reply := func(body, formatted string) *event.MessageEventContent {
+		c := &event.MessageEventContent{MsgType: event.MsgText, Body: body, Format: event.FormatHTML, FormattedBody: formatted,
+			Mentions:  &event.Mentions{UserIDs: []id.UserID{"@recompbot:example.org"}},
+			RelatesTo: &event.RelatesTo{InReplyTo: &event.InReplyTo{EventID: "$answer"}}}
+		c.RemoveReplyFallback()
+		return c
+	}
+	thanks := reply("> <@recompbot:example.org> Found 3 recomps\n\nthanks, the zelda one is great",
+		`<mx-reply><blockquote><a href="https://matrix.to/#/@recompbot:example.org">@recompbot:example.org</a> Found 3 recomps</blockquote></mx-reply>thanks, the zelda one is great`)
+	if b.isMentioned(thanks, false) {
+		t.Error("plain reply to the bot was taken as a mention")
+	}
+	named := reply("> <@recompbot:example.org> Found 3 recomps\n\nRecompBot: and for Mario?",
+		`<mx-reply><blockquote>Found 3 recomps</blockquote></mx-reply>RecompBot: and for Mario?`)
+	if !b.isMentioned(named, false) {
+		t.Error("reply naming the bot wasn't taken as a mention")
+	}
+}
+
+func TestHasKeyword(t *testing.T) {
+	b := testBot()
+	b.cfg = &config.Config{Matrix: config.Matrix{Keywords: []string{"!recomp", "Decomp list"}}}
+	for body, want := range map[string]bool{
+		"!recomp zelda":                 true,
+		"any zelda? !RECOMP":            true,
+		"check the decomp list please":  true,
+		"!recompile everything":         false,
+		"is there a decomp for mario?":  false,
+		"no keywords here, just a chat": false,
+	} {
+		if got := b.hasKeyword(body); got != want {
+			t.Errorf("hasKeyword(%q) = %v, want %v", body, got, want)
+		}
+	}
+}
+
+func TestIsRequest(t *testing.T) {
+	for _, tc := range []struct {
+		intent llm.Intent
+		want   bool
+	}{
+		{llm.Intent{Intent: "add"}, true},
+		{llm.Intent{Intent: "complex_query"}, true},
+		{llm.Intent{Intent: "query", Game: "Zelda"}, true},
+		{llm.Intent{Intent: "query", Count: true}, true},
+		{llm.Intent{Intent: "query"}, false},
+		{llm.Intent{Intent: "unknown"}, false},
+	} {
+		if got := isRequest(&tc.intent); got != tc.want {
+			t.Errorf("isRequest(%+v) = %v, want %v", tc.intent, got, tc.want)
+		}
 	}
 }

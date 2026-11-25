@@ -83,6 +83,11 @@ type Matrix struct {
 	// AnnounceRoom (room ID or alias, optional) gets a message for every new entry
 	// added to the list. It doesn't have to be one of the allowed rooms.
 	AnnounceRoom string `yaml:"announce_room"`
+	// Keywords make the bot treat messages containing any of them (whole words,
+	// any case) as requests, as if it had been mentioned. Such messages are only
+	// answered when they turn out to be a real request (a search, an add...), so
+	// chatter that happens to contain a keyword gets no reply.
+	Keywords []string `yaml:"keywords"`
 }
 
 func (m Matrix) ShouldReply() bool { return m.AnswerWithReply == nil || *m.AnswerWithReply }
