@@ -19,7 +19,7 @@ import (
 
 // Text reactions for automatically added repos.
 const (
-	outcomeAutoAdded          = "Auto-added"                    // added from this message
+	outcomeAutoAdded          = "Auto-added"                   // added from this message
 	outcomeAutoAddedElsewhere = "Auto-added from another room" // added from the same link posted in another room
 )
 
