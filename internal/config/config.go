@@ -64,9 +64,24 @@ type Detect struct {
 	MentionRoomLegacy *bool `yaml:"mention_room"`
 	// MaxLinksPerMessage caps how many repos are checked from one message (default 3).
 	MaxLinksPerMessage int `yaml:"max_links_per_message"`
+	// Auto adds fully classified repos without asking, when posted by someone with
+	// at least AutoLevel power in the room (default false). A room's
+	// org.recompbot.auto_add state event overrides it either way.
+	Auto bool `yaml:"auto"`
+	// AutoLevel is the power level a link's poster needs for it to be auto-added
+	// (default 10). Links from others are suggested with a prompt as usual.
+	AutoLevel *int `yaml:"auto_level"`
 }
 
 func (d Detect) IsEnabled() bool { return d.Enabled == nil || *d.Enabled }
+
+// AutoMinLevel is AutoLevel, defaulting to 10.
+func (d Detect) AutoMinLevel() int {
+	if d.AutoLevel == nil {
+		return 10
+	}
+	return *d.AutoLevel
+}
 
 // Values for Detect.Mention.
 const (

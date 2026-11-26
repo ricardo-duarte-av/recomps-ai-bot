@@ -250,9 +250,30 @@ func (s *Store) Close() error { return s.DB.Close() }
 
 // Add inserts one row per OS. Existing (repo, os) rows are updated.
 func (s *Store) Add(ctx context.Context, e Entry, addedBy string) error {
+	_, err := s.add(ctx, e, addedBy, false)
+	return err
+}
+
+// AddIfAbsent adds e only if its repo isn't in the list at all, checked in the same
+// transaction, so an automatic add never overwrites an entry a moderator added
+// meanwhile. It reports whether e was added.
+func (s *Store) AddIfAbsent(ctx context.Context, e Entry, addedBy string) (bool, error) {
+	return s.add(ctx, e, addedBy, true)
+}
+
+func (s *Store) add(ctx context.Context, e Entry, addedBy string, ifAbsent bool) (added bool, err error) {
 	now := time.Now().Unix()
 	e.OriginalSystem = systems.Normalize(e.OriginalSystem)
-	return s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+	err = s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		if ifAbsent {
+			var n int
+			if err := s.DB.QueryRow(ctx, `SELECT COUNT(*) FROM recomps WHERE repo_url = $1`, e.RepoURL).Scan(&n); err != nil {
+				return err
+			} else if n > 0 {
+				return nil
+			}
+		}
+		added = true
 		for _, os := range e.OSes {
 			_, err := s.DB.Exec(ctx, `
 				INSERT INTO recomps (repo_url, game, original_system, kind, os, added_by, added_at)
@@ -267,6 +288,7 @@ func (s *Store) Add(ctx context.Context, e Entry, addedBy string) error {
 		}
 		return nil
 	})
+	return added && err == nil, err
 }
 
 // Remove deletes rows for repoURL, restricted to oses if non-empty.

@@ -47,6 +47,16 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 				prog.finish(ctx)
 			}
 		}()
+		// Whether this message's repos may be added without asking, looked up once
+		// and only when a repo actually needs it.
+		var auto *bool
+		canAuto := func(ctx context.Context) bool {
+			if auto == nil {
+				v := b.canAutoAdd(ctx, evt)
+				auto = &v
+			}
+			return *auto
+		}
 		for _, repo := range repos {
 			url := repo.URL()
 			unlock := b.lockRepo(url)
@@ -54,11 +64,17 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 			state, entry := b.detectionState(rctx, url, evt.RoomID)
 			switch state {
 			case detectKnown:
-				if _, err := b.client.SendReaction(rctx, evt.RoomID, evt.ID, repo.Host+"/"+repo.Path); err != nil {
-					zerolog.Ctx(rctx).Warn().Err(err).Msg("Failed to add already-known reaction")
+				label := repo.Host + "/" + repo.Path
+				if b.autoAddedElsewhere(url, evt.RoomID) {
+					label = outcomeAutoAddedElsewhere
 				}
+				b.react(rctx, evt, label)
 			case detectAskedElsewhere:
-				// Already classified: ask here, no README or AI needed.
+				// Already classified: no README or AI needed.
+				if canAuto(rctx) && len(missingInfo(*entry)) == 0 {
+					b.react(rctx, evt, b.autoAddOutcome(rctx, evt, repo, *entry))
+					break
+				}
 				zerolog.Ctx(rctx).Info().Msg("Suggesting already classified repo")
 				b.suggest(rctx, evt, *entry)
 			case detectNew:
@@ -66,7 +82,7 @@ func (b *Bot) detectLinks(evt *event.Event, body string) {
 					ctx, prog = b.startWork(ctx, evt)
 					rctx = zerolog.Ctx(ctx).With().Str("repo", url).Logger().WithContext(ctx)
 				}
-				b.detectRepo(rctx, evt, repo)
+				b.detectRepo(rctx, evt, repo, canAuto)
 			}
 			unlock()
 		}
@@ -118,7 +134,33 @@ func (b *Bot) detectionState(ctx context.Context, url string, room id.RoomID) (d
 	return detectNew, nil
 }
 
-func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo) {
+// react adds a reaction to evt, only logging failures.
+func (b *Bot) react(ctx context.Context, evt *event.Event, key string) {
+	if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, key); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Str("reaction", key).Msg("Failed to react")
+	}
+}
+
+// autoAddOutcome auto-adds entry and returns the reaction for evt: outcomeAutoAdded,
+// the repo's name when it was already in the list by then, or ❌
+// on a database error.
+func (b *Bot) autoAddOutcome(ctx context.Context, evt *event.Event, repo forge.Repo, entry store.Entry) string {
+	added, err := b.autoAdd(ctx, evt, entry)
+	switch {
+	case err != nil:
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to auto-add detected repo")
+		markFailed(ctx)
+		return reactFailed
+	case !added:
+		// A moderator added it while it was being checked.
+		return repo.Host + "/" + repo.Path
+	}
+	return outcomeAutoAdded
+}
+
+// detectRepo fetches and classifies a new repo, then adds it (when canAuto allows
+// and it's fully identified), suggests it, or asks for help.
+func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo, canAuto func(context.Context) bool) {
 	log := zerolog.Ctx(ctx)
 	url := repo.URL()
 
@@ -156,7 +198,11 @@ func (b *Bot) detectRepo(ctx context.Context, evt *event.Event, repo forge.Repo)
 		markFailed(ctx)
 		markOutcome(ctx, outcomeMissingInfo)
 		_ = b.store.MarkSeen(ctx, url, store.SeenFailed)
-		b.reply(ctx, evt, missingInfoText(url, missing, nil))
+		b.requestHelp(ctx, evt, url, missing)
+		return
+	}
+	if canAuto(ctx) {
+		markOutcome(ctx, b.autoAddOutcome(ctx, evt, repo, entry))
 		return
 	}
 	log.Info().Interface("entry", entry).Msg("Suggesting detected repo")

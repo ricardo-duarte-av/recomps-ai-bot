@@ -42,7 +42,8 @@ func repoName(repoURL string) string {
 
 // announcement is the markdown posted to the announcements room for a new entry.
 // gameURL and systemURL link the game and original system to IGDB when not empty.
-func announcement(e store.Entry, gameURL, systemURL, name string, by id.UserID) string {
+// credit ends it, e.g. "by [Some Mod](https://matrix.to/#/...)" or "auto-added".
+func announcement(e store.Entry, gameURL, systemURL, credit string) string {
 	kind := kindNoun(e.Kind)
 	platforms := oses.JoinDisplay(sortOSes(e.OSes))
 	system := mdLink(e.OriginalSystem, systemURL)
@@ -52,8 +53,13 @@ func announcement(e store.Entry, gameURL, systemURL, name string, by id.UserID) 
 	} else {
 		what = fmt.Sprintf("a %s of %s from %s for %s", kind, mdLink(e.Game, gameURL), system, platforms)
 	}
-	return fmt.Sprintf("New %s added to the DB: **%s**, %s - %s , by [%s](%s)",
-		kind, repoName(e.RepoURL), what, e.RepoURL, escapeLinkText(name), matrixToURL(by))
+	return fmt.Sprintf("New %s added to the DB: **%s**, %s - %s , %s",
+		kind, repoName(e.RepoURL), what, e.RepoURL, credit)
+}
+
+// creditBy credits a moderator in an announcement, as a pill showing name.
+func creditBy(name string, by id.UserID) string {
+	return fmt.Sprintf("by [%s](%s)", escapeLinkText(name), matrixToURL(by))
 }
 
 // mdLink is text as a markdown link to href, or plain text when href is empty.
@@ -102,15 +108,15 @@ func (b *Bot) igdbLinks(ctx context.Context, e store.Entry) (gameURL, systemURL 
 	return b.igdb.Links(ctx, game, e.OriginalSystem)
 }
 
-// announce posts a new entry to matrix.announce_room, if one is configured.
-// roomID is the room the confirming moderator reacted in.
-func (b *Bot) announce(ctx context.Context, e store.Entry, roomID id.RoomID, by id.UserID) {
+// announce posts a new entry to matrix.announce_room, if one is configured, ending
+// with credit (see announcement).
+func (b *Bot) announce(ctx context.Context, e store.Entry, credit string) {
 	if b.announceRoom == "" {
 		return
 	}
 	log := zerolog.Ctx(ctx)
 	gameURL, systemURL := b.igdbLinks(ctx, e)
-	content := format.RenderMarkdown(announcement(e, gameURL, systemURL, b.userDisplayName(ctx, roomID, by), by), true, false)
+	content := format.RenderMarkdown(announcement(e, gameURL, systemURL, credit), true, false)
 	// Toolkits get their system's logo; games their cover or a screenshot.
 	page := gameURL
 	if e.Kind == store.KindToolkit {

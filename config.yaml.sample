@@ -98,6 +98,14 @@ detect:
   mention: moderators
   # Maximum number of repository links checked per message.
   max_links_per_message: 3
+  # Auto mode: add a detected repo straight away, without the OK/Cancel prompt,
+  # when the README gave the game, original system, kind and platforms and the
+  # link was posted by someone with at least auto_level power in that room (give
+  # feed bots at least that level). Links from others still get the prompt.
+  # Moderators can override this per room ("stop auto-adding in this room" /
+  # "start auto-adding in this room"), which is saved in the room's state.
+  auto: false
+  auto_level: 10
 
 web:
   # Read-only, searchable page listing everything in the database.

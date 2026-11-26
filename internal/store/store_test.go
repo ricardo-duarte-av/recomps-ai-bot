@@ -139,3 +139,26 @@ func TestOriginalSystemsAreNormalized(t *testing.T) {
 		}
 	}
 }
+
+func TestAddIfAbsent(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	mod := Entry{RepoURL: "https://github.com/x/a", Game: "Real Game", OriginalSystem: "PS2", Kind: "decomp", OSes: []string{"linux"}}
+	auto := Entry{RepoURL: mod.RepoURL, Game: "AI Guess", OriginalSystem: "PS2", Kind: "recomp", OSes: []string{"windows"}}
+	if added, err := s.AddIfAbsent(ctx, mod, "@poster:x"); err != nil || !added {
+		t.Fatalf("first AddIfAbsent = %v, %v", added, err)
+	}
+	// A repo that's already listed is left exactly as it is.
+	if added, err := s.AddIfAbsent(ctx, auto, "@poster:x"); err != nil || added {
+		t.Fatalf("second AddIfAbsent = %v, %v", added, err)
+	}
+	got, err := s.GetByRepo(ctx, mod.RepoURL)
+	if err != nil || got == nil || got.Game != "Real Game" || got.Kind != "decomp" || !slices.Equal(got.OSes, []string{"linux"}) {
+		t.Fatalf("GetByRepo = %+v, %v", got, err)
+	}
+}

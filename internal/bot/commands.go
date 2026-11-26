@@ -28,7 +28,8 @@ const helpText = "I keep a list of game recomps, decomps and reimplementations, 
 	"- `which games have both a recomp and a decomp?`\n" +
 	"- `add this repo to the list https://github.com/owner/repo` (moderators)\n" +
 	"- `remove repo https://github.com/owner/repo from the list` (moderators)\n" +
-	"- `add extra https://github.com/owner/repo` followed by a ``` code block with notes or links (moderators; `remove extra <repo>` clears it)"
+	"- `add extra https://github.com/owner/repo` followed by a ``` code block with notes or links (moderators; `remove extra <repo>` clears it)\n" +
+	"- `stop auto-adding in this room` / `start auto-adding in this room` (moderators; `auto-adding status` shows the setting)"
 
 func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) {
 	log := zerolog.Ctx(ctx)
@@ -38,6 +39,10 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 	}
 	if cmd, ok := parseExtraCommand(text); ok {
 		b.handleExtra(ctx, evt, cmd)
+		return
+	}
+	if enable, ok := autoAddCommand(text); ok {
+		b.handleAutoAddCommand(ctx, evt, enable)
 		return
 	}
 	known, err := b.store.Games(ctx)
@@ -76,6 +81,12 @@ func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) 
 		b.handleExtra(ctx, evt, cmd)
 		return
 	}
+	if enable, ok := autoAddCommand(text); ok {
+		ctx, prog := b.startWork(ctx, evt)
+		defer prog.finish(ctx)
+		b.handleAutoAddCommand(ctx, evt, enable)
+		return
+	}
 	known, err := b.store.Games(ctx)
 	if err != nil {
 		log.Err(err).Msg("Failed to list games")
@@ -96,7 +107,7 @@ func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) 
 		if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, reactNotRequest); err != nil {
 			log.Warn().Err(err).Msg("Failed to react to keyword message")
 		}
-		if b.cfg.Detect.IsEnabled() {
+		if b.cfg.Detect.IsEnabled() && b.rooms[evt.RoomID] {
 			b.detectLinks(evt, text)
 		}
 		return

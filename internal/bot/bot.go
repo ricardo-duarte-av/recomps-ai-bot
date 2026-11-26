@@ -48,6 +48,7 @@ type Bot struct {
 
 	createEvents sync.Map   // id.RoomID -> *event.Event (m.room.create never changes)
 	detecting    sync.Map   // repo URL -> *sync.Mutex held while link detection checks it
+	autoAdded    sync.Map   // repo URL -> autoAddRecord, for repos auto-added in the last autoAddedWindow
 	pinMu        sync.Mutex // serializes read-modify-write of rooms' pinned events
 	// promptSetup holds, per prompt event ID, a channel closed once prompt has
 	// finished seeding its reactions and pinning it, so closing it waits for that.
@@ -184,8 +185,14 @@ func (b *Bot) onMember(ctx context.Context, evt *event.Event) {
 	}
 }
 
+// commandRoom reports whether the bot takes commands in room: the allowed rooms and
+// the announcements room, where help requests for detected repos are posted.
+func (b *Bot) commandRoom(room id.RoomID) bool {
+	return b.rooms[room] || (room != "" && room == b.announceRoom)
+}
+
 func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
-	if evt.Sender == b.userID || b.ignored[evt.Sender] || !b.rooms[evt.RoomID] {
+	if evt.Sender == b.userID || b.ignored[evt.Sender] || !b.commandRoom(evt.RoomID) {
 		return
 	}
 	if time.UnixMilli(evt.Timestamp).Before(b.startTime) {
@@ -218,8 +225,9 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 		text = b.stripMention(text)
 	}
 	if !mentioned && !keyword {
-		// Not a command: just watch for repository links (notices too, e.g. feed bots).
-		if b.cfg.Detect.IsEnabled() {
+		// Not a command: just watch for repository links (notices too, e.g. feed bots),
+		// in the allowed rooms only.
+		if b.cfg.Detect.IsEnabled() && b.rooms[evt.RoomID] {
 			b.detectLinks(evt, content.Body)
 		}
 		return

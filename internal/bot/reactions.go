@@ -28,7 +28,7 @@ func classifyReaction(key string) (confirm, cancel bool) {
 
 func (b *Bot) onReaction(ctx context.Context, evt *event.Event) {
 	// Reactions are not filtered by timestamp: a moderator may confirm while the bot was offline.
-	if evt.Sender == b.userID || b.ignored[evt.Sender] || !b.rooms[evt.RoomID] {
+	if evt.Sender == b.userID || b.ignored[evt.Sender] || !b.commandRoom(evt.RoomID) {
 		return
 	}
 	rel := evt.Content.AsReaction().RelatesTo
@@ -129,7 +129,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		added := fmt.Sprintf("Added %s (%s). Confirmed by %s", e.RepoURL, describe(e), mention(evt.Sender))
 		closeAll("Added", added+".", added+" in another room.")
 		if existing == nil && err == nil {
-			b.announce(ctx, e, evt.RoomID, evt.Sender)
+			b.announce(ctx, e, creditBy(b.userDisplayName(ctx, evt.RoomID, evt.Sender), evt.Sender))
 		}
 		b.igdb.Kick() // link the game on the web page
 	case "remove":
