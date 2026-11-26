@@ -80,9 +80,10 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		}
 	}
 	// closeAll swaps the reactions on every answered prompt for the outcome, e.g.
-	// "Added by @mod:server". The message is only sent where that reaction can't be.
+	// "Added by Mod Name" (the moderator's display name, since user IDs can be
+	// long and cryptic). The message is only sent where that reaction can't be.
 	closeAll := func(verb, msg, othersMsg string) {
-		label := fmt.Sprintf("%s by %s", verb, evt.Sender)
+		label := fmt.Sprintf("%s by %s", verb, shortName(b.userDisplayName(ctx, evt.RoomID, evt.Sender)))
 		if !b.closePrompt(ctx, evt.RoomID, promptID, label, evt.ID) {
 			b.reply(ctx, target, msg)
 		}
@@ -257,4 +258,16 @@ func (b *Bot) expireDetected(ctx context.Context) {
 				formatHours(store.DetectedPendingTTL), p.Entry.RepoURL))
 		b.setPinned(ctx, id.RoomID(p.RoomID), id.EventID(p.EventID), false)
 	}
+}
+
+// maxNameRunes caps a display name in a reaction label.
+const maxNameRunes = 40
+
+// shortName trims name to maxNameRunes characters, ending it with "…" when cut.
+func shortName(name string) string {
+	name = strings.TrimSpace(name)
+	if r := []rune(name); len(r) > maxNameRunes {
+		return strings.TrimSpace(string(r[:maxNameRunes-1])) + "…"
+	}
+	return name
 }

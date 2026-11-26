@@ -165,3 +165,16 @@ func TestMissingInfoText(t *testing.T) {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
 }
+
+func TestShortName(t *testing.T) {
+	for in, want := range map[string]string{
+		"Daedric": "Daedric",
+		"  Mod  ": "Mod",
+		"@hna6234faadhj789450a45ybasgdbawhghdsarj:matrix.org": "@hna6234faadhj789450a45ybasgdbawhghdsar…",
+		strings.Repeat("é", 45):                               strings.Repeat("é", 39) + "…",
+	} {
+		if got := shortName(in); got != want {
+			t.Errorf("shortName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
