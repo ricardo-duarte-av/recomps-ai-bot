@@ -61,10 +61,13 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 // reactNotRequest marks a keyword message the bot didn't take as a request.
 const reactNotRequest = "❓️"
 
+// reactAIFail marks a keyword message the AI couldn't be asked about.
+const reactAIFail = "🇦🇮"
+
 // handleKeyword handles a message that contains one of matrix.keywords without
 // mentioning the bot. Unlike a mention, it's only answered (and marked with the
 // progress reactions) when it's a real request; otherwise it gets a ❓ reaction
-// and is only checked for repository links, like any other message.
+// (🇦🇮 when the AI call fails) and is only checked for repository links, like any other message.
 func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) {
 	log := zerolog.Ctx(ctx)
 	if cmd, ok := parseExtraCommand(text); ok {
@@ -80,7 +83,10 @@ func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) 
 	}
 	intent, err := b.llm.ParseIntent(ctx, text, known)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to parse intent of keyword message; ignoring it")
+		log.Warn().Err(err).Msg("Failed to parse intent of keyword message; reacting with 🇦🇮")
+		if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, reactAIFail); err != nil {
+			log.Warn().Err(err).Msg("Failed to react to keyword message")
+		}
 		return
 	}
 	log.Debug().Interface("intent", intent).Str("text", text).Msg("Parsed intent of keyword message")
