@@ -82,6 +82,7 @@ func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) 
 	}
 	log.Debug().Interface("intent", intent).Str("text", text).Msg("Parsed intent of keyword message")
 	if !isRequest(intent) {
+		log.Info().Str("intent", intent.Intent).Msg("Ignoring keyword message that isn't a request")
 		if b.cfg.Detect.IsEnabled() {
 			b.detectLinks(evt, text)
 		}

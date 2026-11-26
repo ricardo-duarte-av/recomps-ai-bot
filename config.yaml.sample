@@ -23,8 +23,9 @@ matrix:
   # the list. It doesn't need to be in allowed_rooms; the bot only posts there.
   announce_room: ""
   # Optional words that make the bot act on a message without being mentioned,
-  # e.g. ["!recomp"]. Matched as whole words, ignoring case. Messages that only
-  # contain a keyword but aren't a request (a search, an add...) are ignored.
+  # e.g. ["!recomp"]. Matched as whole words, ignoring case. A message starting
+  # with a keyword is handled like a mention; one that only contains a keyword
+  # elsewhere is ignored unless it's a request (a search, an add...).
   keywords: []
 
 openai:

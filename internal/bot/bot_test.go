@@ -104,6 +104,28 @@ func TestHasKeyword(t *testing.T) {
 	}
 }
 
+func TestKeywordPrefix(t *testing.T) {
+	b := testBot()
+	b.cfg = &config.Config{Matrix: config.Matrix{Keywords: []string{"!bot", "boto"}}}
+	for _, tc := range []struct {
+		body, rest string
+		ok         bool
+	}{
+		{"boto zelda", "zelda", true},
+		{"Boto, any mario recomps?", "any mario recomps?", true},
+		{"  !bot: count recomps", "count recomps", true},
+		{"!BOT", "", true},
+		{"boto", "", true},
+		{"botox zelda", "", false},
+		{"vou ao boto amanhã", "", false},
+	} {
+		rest, ok := b.keywordPrefix(tc.body)
+		if rest != tc.rest || ok != tc.ok {
+			t.Errorf("keywordPrefix(%q) = %q, %v; want %q, %v", tc.body, rest, ok, tc.rest, tc.ok)
+		}
+	}
+}
+
 func TestIsRequest(t *testing.T) {
 	for _, tc := range []struct {
 		intent llm.Intent

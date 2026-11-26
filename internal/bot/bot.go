@@ -205,7 +205,18 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 	replyToBot := content.RelatesTo.GetReplyTo() != "" && content.Mentions != nil && content.Mentions.Has(b.userID)
 	content.RemoveReplyFallback()
 	mentioned := content.MsgType != event.MsgNotice && b.isMentioned(content, !replyToBot)
-	keyword := !mentioned && !replyToBot && content.MsgType != event.MsgNotice && b.hasKeyword(content.Body)
+	// A message that starts with a keyword addresses the bot just like a mention.
+	text := content.Body
+	keyword := false
+	if !mentioned && !replyToBot && content.MsgType != event.MsgNotice {
+		if rest, ok := b.keywordPrefix(content.Body); ok {
+			mentioned, text = true, rest
+		} else {
+			keyword = b.hasKeyword(content.Body)
+		}
+	} else if mentioned {
+		text = b.stripMention(text)
+	}
 	if !mentioned && !keyword {
 		// Not a command: just watch for repository links (notices too, e.g. feed bots).
 		if b.cfg.Detect.IsEnabled() {
@@ -213,11 +224,13 @@ func (b *Bot) onMessage(ctx context.Context, evt *event.Event) {
 		}
 		return
 	}
-	text := content.Body
-	if mentioned {
-		text = b.stripMention(text)
-	}
 	if text == "" {
+		// Just the bot's name or a keyword: say what it can do.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			b.reply(b.log.WithContext(ctx), evt, helpText)
+		}()
 		return
 	}
 	// LLM and forge calls are slow; don't block the sync loop.
@@ -245,6 +258,21 @@ func (b *Bot) hasKeyword(body string) bool {
 		}
 	}
 	return false
+}
+
+// keywordPrefix reports whether body starts with one of matrix.keywords as a
+// whole word, and returns the rest of the message without it.
+func (b *Bot) keywordPrefix(body string) (string, bool) {
+	trimmed := strings.TrimSpace(body)
+	lower := strings.ToLower(trimmed)
+	for _, k := range b.cfg.Matrix.Keywords {
+		k = strings.ToLower(strings.TrimSpace(k))
+		if k == "" || !strings.HasPrefix(lower, k) || len(lower) > len(k) && isWordChar(lower[len(k)]) {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimLeft(trimmed[len(k):], ":, ")), true
+	}
+	return "", false
 }
 
 // isMentioned reports whether the message addresses the bot. trustMentions is
