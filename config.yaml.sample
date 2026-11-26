@@ -25,7 +25,8 @@ matrix:
   # Optional words that make the bot act on a message without being mentioned,
   # e.g. ["!recomp"]. Matched as whole words, ignoring case. A message starting
   # with a keyword is handled like a mention; one that only contains a keyword
-  # elsewhere is ignored unless it's a request (a search, an add...).
+  # elsewhere is only answered when it's a request (a search, an add...);
+  # otherwise the bot reacts with ❓.
   keywords: []
 
 openai:

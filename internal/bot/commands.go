@@ -58,10 +58,13 @@ func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) 
 	b.dispatch(ctx, evt, text, intent)
 }
 
+// reactNotRequest marks a keyword message the bot didn't take as a request.
+const reactNotRequest = "❓️"
+
 // handleKeyword handles a message that contains one of matrix.keywords without
 // mentioning the bot. Unlike a mention, it's only answered (and marked with the
-// progress reactions) when it's a real request; otherwise it's treated like any
-// other message and only checked for repository links.
+// progress reactions) when it's a real request; otherwise it gets a ❓ reaction
+// and is only checked for repository links, like any other message.
 func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) {
 	log := zerolog.Ctx(ctx)
 	if cmd, ok := parseExtraCommand(text); ok {
@@ -82,7 +85,11 @@ func (b *Bot) handleKeyword(ctx context.Context, evt *event.Event, text string) 
 	}
 	log.Debug().Interface("intent", intent).Str("text", text).Msg("Parsed intent of keyword message")
 	if !isRequest(intent) {
-		log.Info().Str("intent", intent.Intent).Msg("Ignoring keyword message that isn't a request")
+		// Not a request the bot understood: ask with ❓ instead of answering.
+		log.Info().Str("intent", intent.Intent).Msg("Keyword message isn't a request; reacting with ❓")
+		if _, err := b.client.SendReaction(ctx, evt.RoomID, evt.ID, reactNotRequest); err != nil {
+			log.Warn().Err(err).Msg("Failed to react to keyword message")
+		}
 		if b.cfg.Detect.IsEnabled() {
 			b.detectLinks(evt, text)
 		}
