@@ -159,7 +159,7 @@ func Load(path string) (*Config, error) {
 		c.Matrix.ModeratorLevel = 50
 	}
 	if c.OpenAI.Model == "" {
-		c.OpenAI.Model = "gpt-5-mini"
+		c.OpenAI.Model = "gpt-6-luna"
 	}
 	if c.Detect.Mention == "" {
 		c.Detect.Mention = MentionModerators

@@ -30,7 +30,7 @@ matrix:
 
 openai:
   api_key: "sk-..."
-  model: gpt-5-mini
+  model: gpt-6-luna
   # Optional: "minimal" / "low" keep replies fast and cheap on GPT-5 models.
   # Leave empty for models that don't support reasoning_effort.
   reasoning_effort: low
