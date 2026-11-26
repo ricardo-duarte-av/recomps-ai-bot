@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -41,6 +42,9 @@ type Bot struct {
 	announceRoom id.RoomID
 	ignored      map[id.UserID]bool
 	startTime    time.Time
+	// releasesRoom gets the daily release report; empty when not configured.
+	releasesRoom  id.RoomID
+	reportRunning atomic.Bool
 
 	createEvents sync.Map   // id.RoomID -> *event.Event (m.room.create never changes)
 	detecting    sync.Map   // repo URL -> *sync.Mutex held while link detection checks it
@@ -112,6 +116,19 @@ func (b *Bot) Run(ctx context.Context) error {
 		}
 	}
 
+	if b.cfg.Releases.IsEnabled() {
+		r := b.cfg.Releases.Room
+		roomID, err := b.resolveRoom(ctx, r)
+		if err != nil {
+			return fmt.Errorf("resolving releases room %s: %w", r, err)
+		}
+		b.releasesRoom = roomID
+		if _, err := client.JoinRoom(ctx, r, nil); err != nil {
+			b.log.Warn().Err(err).Str("room", r).Msg("Failed to join releases room")
+		}
+		go b.releaseLoop(ctx)
+	}
+
 	b.startTime = time.Now()
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
 	syncer.OnEventType(event.EventMessage, b.onMessage)
@@ -157,7 +174,7 @@ func (b *Bot) purgeLoop(ctx context.Context) {
 
 // onMember auto-joins invites to allowed rooms only.
 func (b *Bot) onMember(ctx context.Context, evt *event.Event) {
-	if evt.GetStateKey() != b.userID.String() || (!b.rooms[evt.RoomID] && evt.RoomID != b.announceRoom) {
+	if evt.GetStateKey() != b.userID.String() || (!b.rooms[evt.RoomID] && evt.RoomID != b.announceRoom && evt.RoomID != b.releasesRoom) {
 		return
 	}
 	if evt.Content.AsMember().Membership == event.MembershipInvite {

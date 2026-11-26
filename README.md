@@ -66,6 +66,17 @@ with the same `OK`/`Cancel` reactions. `OK` from a moderator adds it; `Cancel` d
 
 **IGDB links:** with `igdb.client_id` and `igdb.client_secret` set in `config.yaml` (a Twitch application's credentials, see `config.yaml.sample`), game names and original systems link to their [IGDB](https://www.igdb.com) pages, on the web page and in announcements, e.g. *a decompilation of [Street Fighter Alpha Anthology](https://www.igdb.com/games/street-fighter-alpha-anthology) from [PlayStation 2](https://www.igdb.com/platforms/ps2)*. The game is looked up among IGDB's releases on that original system, so the same title on different systems gets the right entry; when the system isn't on IGDB, only an exact title match is linked. When IGDB has a picture, announcements are posted as that picture with the message as its caption: the game's cover (or the cover of the game it's an edition of), else official artwork, else a screenshot, all small sizes; toolkits get their system's logo. Without a picture, or if downloading or uploading it fails, the announcement is plain text as before. The web page shows that picture above each game's name. Links, IGDB game IDs and game pictures are cached in the database (pictures are served by the bot itself, so the page never calls IGDB): the bot links new entries as they're added and checks the whole list hourly, and games IGDB doesn't know, or that have no picture, are looked up again after a week.
 
+**Daily release report:** set `releases.time` (e.g. `"20:00"`) and optionally `releases.timezone` (e.g. `"Europe/Lisbon"`, default UTC) and `releases.room` (default `matrix.announce_room`), and every day at that time the bot checks every repository in the list for releases published in the 24 hours before it and posts them as one report (split into several messages if it's very long), grouped by game, then repository, then release, newest first:
+
+> **New releases in the last 24 hours:** 3 releases in 2 repositories
+>
+> **[Super Mario 64](https://www.igdb.com/games/super-mario-64)** (Nintendo 64)
+> - https://github.com/owner/sm64-port (decomp)
+>   - [v1.2](https://github.com/owner/sm64-port/releases/tag/v1.2) · Nov 26 14:03
+>   - [v1.2-rc1](https://github.com/owner/sm64-port/releases/tag/v1.2-rc1) (pre-release) · Nov 26 09:12
+
+Toolkits are listed after the games, per original system. Draft releases are left out; nothing is posted when there are no new releases. GitHub repositories are checked 50 at a time through GitHub's GraphQL API, so about 30 requests cover 1500 repositories; this needs `github.token`. GitLab and Gitea/Forgejo repositories are checked one by one through their APIs; other hosts (cgit, SourceHut...) have no releases API and are skipped. A full check takes a few minutes and logs its progress and a summary. A moderator can also mention the bot with `releases` to run the report right away for the last 24 hours.
+
 Each supported target platform is stored as its own row. Targets can be operating systems or other consoles/handhelds (e.g. a SNES game recompiled for the Nintendo 3DS): `windows, linux, macos, freebsd, haiku, dos, android, ios, web, switch, 3ds, nds, wiiu, wii, gamecube, n64, gba, vita, psp, ps2, ps3, ps4, ps5, xbox, xbox360, xboxone, dreamcast`. Names are normalized, e.g. Steam Deck/Fedora/Ubuntu/Debian/Arch → `linux`, OSX/Mac → `macos`, New 3DS/2DS → `3ds`, Xbox Series X|S → `xboxone`.
 
 ## Web page

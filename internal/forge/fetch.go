@@ -35,6 +35,8 @@ type Host struct {
 type Client struct {
 	hosts map[string]Host
 	http  *http.Client
+	// githubGraphQL overrides the GitHub GraphQL endpoint (tests only).
+	githubGraphQL string
 }
 
 // NewClient creates a client. hosts maps lowercase host names to their settings.

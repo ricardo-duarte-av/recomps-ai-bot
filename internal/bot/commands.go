@@ -32,6 +32,10 @@ const helpText = "I keep a list of game recomps, decomps and reimplementations, 
 
 func (b *Bot) handleCommand(ctx context.Context, evt *event.Event, text string) {
 	log := zerolog.Ctx(ctx)
+	if releasesCommand(text) {
+		b.handleReleasesCommand(ctx, evt)
+		return
+	}
 	if cmd, ok := parseExtraCommand(text); ok {
 		b.handleExtra(ctx, evt, cmd)
 		return

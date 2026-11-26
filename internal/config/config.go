@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,7 +20,26 @@ type Config struct {
 	Web      Web      `yaml:"web"`
 	Detect   Detect   `yaml:"detect"`
 	IGDB     IGDB     `yaml:"igdb"`
+	Releases Releases `yaml:"releases"`
 }
+
+// Releases configures the daily report of new releases of the listed repos.
+type Releases struct {
+	// Time is the local time of day ("HH:MM") the report is posted. The report
+	// covers the 24 hours before it. Empty turns the report off.
+	Time string `yaml:"time"`
+	// Timezone is an IANA zone name such as "Europe/Lisbon" (default UTC).
+	Timezone string `yaml:"timezone"`
+	// Room (ID or alias) gets the report; defaults to matrix.announce_room.
+	Room string `yaml:"room"`
+
+	// Hour, Minute and Location are parsed from Time and Timezone by Load.
+	Hour, Minute int            `yaml:"-"`
+	Location     *time.Location `yaml:"-"`
+}
+
+// IsEnabled reports whether the daily release report is configured.
+func (r Releases) IsEnabled() bool { return r.Time != "" }
 
 // IGDB holds the Twitch application credentials used to call the IGDB API.
 // Linking to IGDB is off when they're empty.
@@ -181,6 +201,25 @@ func Load(path string) (*Config, error) {
 	}
 	if (c.IGDB.ClientID == "") != (c.IGDB.ClientSecret == "") {
 		errs = append(errs, errors.New("igdb.client_id and igdb.client_secret must be set together"))
+	}
+	if c.Releases.IsEnabled() {
+		t, err := time.Parse("15:04", strings.TrimSpace(c.Releases.Time))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("releases.time %q must be HH:MM, e.g. 20:00", c.Releases.Time))
+		}
+		c.Releases.Hour, c.Releases.Minute = t.Hour(), t.Minute()
+		c.Releases.Location = time.UTC
+		if c.Releases.Timezone != "" {
+			if c.Releases.Location, err = time.LoadLocation(c.Releases.Timezone); err != nil {
+				errs = append(errs, fmt.Errorf("releases.timezone %q: %w", c.Releases.Timezone, err))
+			}
+		}
+		if c.Releases.Room == "" {
+			c.Releases.Room = c.Matrix.AnnounceRoom
+		}
+		if c.Releases.Room == "" {
+			errs = append(errs, errors.New("releases.room (or matrix.announce_room) is required when releases.time is set"))
+		}
 	}
 	switch c.Detect.Mention {
 	case MentionModerators, MentionRoom, MentionNone:

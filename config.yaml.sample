@@ -59,6 +59,18 @@ forges:
   # self-hosted forge is on your LAN.
   allow_private_networks: false
 
+releases:
+  # Optional daily report of new releases of every repository in the list,
+  # posted at this local time ("HH:MM") and covering the 24 hours before it.
+  # Leave empty to turn it off. GitHub repos are checked in batches through the
+  # GraphQL API, which needs github.token; without it they're checked one by one
+  # and GitHub's limit of 60 requests/hour won't cover a big list.
+  time: ""
+  # IANA time zone for time, e.g. "Europe/Lisbon". Default UTC.
+  timezone: ""
+  # Room (ID or alias) for the report. Defaults to matrix.announce_room.
+  room: ""
+
 igdb:
   # Optional: link game names and original systems to their IGDB (igdb.com) pages,
   # on the web page and in announcements. Uses a Twitch application's credentials:
