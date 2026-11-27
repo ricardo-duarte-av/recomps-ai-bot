@@ -23,6 +23,7 @@ func TestNotifierCallsHook(t *testing.T) {
 	defer cancel()
 	n := New(srv.URL+"/hooks/sources/recomps", "secret", zerolog.Nop())
 	go n.Run(ctx)
+	<-got // the startup check
 	n.Kick()
 
 	select {

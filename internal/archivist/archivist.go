@@ -43,8 +43,15 @@ func (n *Notifier) Kick() {
 	}
 }
 
-// Run calls the hook once per (merged) kick until ctx is cancelled.
+// Run checks the hook once, logging whether it works, then calls it once per
+// (merged) kick until ctx is cancelled. The check is a real hook call: it is the
+// only way to test the token, and an extra sync costs the archivist nothing.
 func (n *Notifier) Run(ctx context.Context) {
+	if err := n.call(ctx); err != nil {
+		n.log.Warn().Err(err).Str("url", n.url).Msg("Archivist sync hook isn't working; the archivist will only see changes at its polling interval")
+	} else {
+		n.log.Info().Str("url", n.url).Msg("Archivist sync hook is working")
+	}
 	for {
 		select {
 		case <-ctx.Done():
