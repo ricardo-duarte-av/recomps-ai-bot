@@ -129,3 +129,34 @@ func TestFormatEntriesGroupsInterleavedSystems(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestSearchFallsBackToOtherKinds(t *testing.T) {
+	all := []store.Entry{
+		{Game: "Super Smash Bros. Melee", OriginalSystem: "GameCube", Kind: store.KindDecomp, OSes: []string{"linux"}, RepoURL: "a"},
+		{OriginalSystem: "GameCube", Kind: store.KindToolkit, OSes: []string{"linux"}, RepoURL: "b"},
+		{Game: "Halo", OriginalSystem: "Xbox", Kind: store.KindRecomp, OSes: []string{"windows"}, RepoURL: "c"},
+	}
+	melee := []string{"Super Smash Bros. Melee"}
+	recomp := &llm.Intent{Kind: store.KindRecomp, Game: "Super Smash Bros. Melee", Titles: melee}
+
+	got, _, other := search(all, melee, recomp, true)
+	if !other || len(got) != 1 || got[0].RepoURL != "a" {
+		t.Errorf("recomp search for Melee = %v (other kinds %v), want the decomp", got, other)
+	}
+	if got, _, other := search(all, melee, recomp, false); other || len(got) != 0 {
+		t.Errorf("counting must not fall back: %v %v", got, other)
+	}
+	// The other filters still apply: no Melee port runs on Windows.
+	winRecomp := &llm.Intent{Kind: store.KindRecomp, Titles: melee, OSes: []string{"windows"}}
+	if got, _, other := search(all, melee, winRecomp, true); other || len(got) != 0 {
+		t.Errorf("Windows search = %v %v, want nothing", got, other)
+	}
+	// Toolkit searches never fall back to games.
+	tk := &llm.Intent{Kind: store.KindToolkit, Systems: []string{"Xbox"}}
+	if got, _, other := search(all, nil, tk, true); other || len(got) != 0 {
+		t.Errorf("toolkit search = %v %v, want nothing", got, other)
+	}
+	if got, _, other := search(all, nil, &llm.Intent{Kind: store.KindRecomp}, true); other || len(got) != 1 || got[0].RepoURL != "c" {
+		t.Errorf("plain recomp search = %v %v", got, other)
+	}
+}

@@ -19,7 +19,7 @@ Anyone:
 @recompbot how many decomps per console?
 ```
 
-Toolkits are left out of searches unless you ask for them; a search that matches some says how many.
+Toolkits are left out of searches unless you ask for them; a search that matches some says how many. If a search for one kind finds nothing but other kinds match (`where is the Melee recomp?` when there's only a decomp), the bot says so and lists those instead.
 
 Counting questions use the same filters as searches and answer with a number (plus a recomp/decomp/reimpl split); ask for a breakdown "per console", "by platform", "by type" or "per game" to get a ranked list.
 

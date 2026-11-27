@@ -419,16 +419,9 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 		return
 	}
 
-	entries := slices.DeleteFunc(all, func(e store.Entry) bool {
-		return (len(titles) > 0 && !slices.Contains(titles, e.Game)) ||
-			(len(intent.Systems) > 0 && !slices.Contains(intent.Systems, e.OriginalSystem)) ||
-			(intent.Kind != "" && e.Kind != intent.Kind)
-	})
-	if len(intent.OSes) > 0 {
-		entries = filterOSes(entries, intent.OSes)
-	}
-	entries, toolkits := splitToolkits(entries, intent.Kind)
-	if intent.Count || intent.GroupBy != "" {
+	countOnly := intent.Count || intent.GroupBy != ""
+	entries, toolkits, otherKinds := search(all, titles, intent, !countOnly)
+	if countOnly {
 		b.reply(ctx, evt, formatCount(entries, toolkits, intent))
 		return
 	}
@@ -441,7 +434,37 @@ func (b *Bot) handleQuery(ctx context.Context, evt *event.Event, intent *llm.Int
 	default:
 		msg = formatEntries(entries)
 	}
+	if otherKinds {
+		msg = strings.TrimSuffix(noMatch(intent), ".") + ", but there's this:\n\n" + msg
+	}
 	b.reply(ctx, evt, msg+toolkitsHint(toolkits, len(entries) > 0))
+}
+
+// search applies a query's filters (titles, original systems, kind, target
+// platforms) to the list and hides toolkits unless they were asked for.
+// People say "recomp" loosely for any port, so when fallback is set and the
+// kind filter alone leaves nothing, search drops it and returns the other
+// kinds' matches with otherKinds set ("where's the Melee recomp?" finds the decomp).
+func search(all []store.Entry, titles []string, intent *llm.Intent, fallback bool) (entries []store.Entry, toolkits int, otherKinds bool) {
+	filter := func(kind string) []store.Entry {
+		out := slices.DeleteFunc(slices.Clone(all), func(e store.Entry) bool {
+			return (len(titles) > 0 && !slices.Contains(titles, e.Game)) ||
+				(len(intent.Systems) > 0 && !slices.Contains(intent.Systems, e.OriginalSystem)) ||
+				(kind != "" && e.Kind != kind)
+		})
+		if len(intent.OSes) > 0 {
+			out = filterOSes(out, intent.OSes)
+		}
+		return out
+	}
+	entries, toolkits = splitToolkits(filter(intent.Kind), intent.Kind)
+	if len(entries) > 0 || !fallback || intent.Kind == "" || intent.Kind == store.KindToolkit {
+		return entries, toolkits, false
+	}
+	if alt, _ := splitToolkits(filter(""), ""); len(alt) > 0 {
+		return alt, toolkits, true
+	}
+	return entries, toolkits, false
 }
 
 // splitToolkits removes toolkits from a search result unless the user asked for
