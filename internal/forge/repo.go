@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Forge types.
@@ -71,7 +72,10 @@ func (r Repo) Name() string {
 // URLPattern finds candidate URLs in free text: anything with a scheme,
 // or a bare well-known forge host. Brackets, parentheses and backticks end a URL so
 // Markdown links like [url](url) and `url` yield the URL itself.
-var URLPattern = regexp.MustCompile("(?i)\\bhttps?://[^\\s<>\"'\\[\\]()`]+|\\b(?:www\\.)?(?:github\\.com|gitlab\\.com|codeberg\\.org|gitea\\.com|git\\.sr\\.ht)/[^\\s<>\"'\\[\\]()`]+")
+// RE2's \s is ASCII-only, so Unicode spaces (\p{Z}) and invisible format
+// characters (\p{Cf}: word joiner, zero-width space, BOM...) end a URL too;
+// Reddit bodies sometimes glue a U+2060 word joiner onto links.
+var URLPattern = regexp.MustCompile("(?i)\\bhttps?://[^\\s\\p{Z}\\p{Cf}<>\"'\\[\\]()`]+|\\b(?:www\\.)?(?:github\\.com|gitlab\\.com|codeberg\\.org|gitea\\.com|git\\.sr\\.ht)/[^\\s\\p{Z}\\p{Cf}<>\"'\\[\\]()`]+")
 
 // pagesHosts maps static-site hosting domains to the forge serving the repository:
 // https://user.github.io/project is built from https://github.com/user/project.
@@ -135,6 +139,14 @@ func ParseRepo(raw string, hostType func(host string) string) (Repo, error) {
 	// Markdown bodies escape punctuation (Reddit writes gravityrush\_pc); a backslash
 	// is never part of a real URL, so drop it rather than detect a bogus repo.
 	raw = strings.ReplaceAll(raw, "\\", "")
+	// Invisible format characters (U+2060 word joiner, U+200B zero-width space...)
+	// are never part of a real URL but survive TrimSpace.
+	raw = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, raw)
 	if !strings.Contains(raw, "://") {
 		raw = "https://" + raw
 	}

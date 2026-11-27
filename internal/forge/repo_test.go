@@ -108,3 +108,20 @@ func TestFindReposMarkdownLink(t *testing.T) {
 		}
 	}
 }
+
+func TestFindRepoInvisibleChars(t *testing.T) {
+	want := "https://github.com/vectordev58/smb3"
+	for _, text := range []string{
+		"Repo: https://github.com/vectorDev58/smb3⁠",
+		"https://github.com/vectorDev58/smb3​ and more",
+		"github.com/vectorDev58/smb3 for linux",
+	} {
+		r, ok := FindRepo(text, nil)
+		if !ok || r.URL() != want || r.WebURL() != "https://github.com/vectorDev58/smb3" {
+			t.Errorf("FindRepo(%q) = %q %v; want %q", text, r.WebURL(), ok, want)
+		}
+	}
+	if r, err := ParseRepo("https://github.com/vectorDev58/smb3⁠", nil); err != nil || r.Name() != "smb3" {
+		t.Errorf("ParseRepo kept the word joiner: %q %v", r.Path, err)
+	}
+}
