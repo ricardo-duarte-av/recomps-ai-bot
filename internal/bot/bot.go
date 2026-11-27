@@ -18,6 +18,7 @@ import (
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/archivist"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/igdb"
@@ -34,6 +35,8 @@ type Bot struct {
 	llm    *llm.Client
 	forge  *forge.Client
 	igdb   *igdb.Linker // nil when IGDB isn't configured
+	// archivist is told when the list changes; nil when not configured.
+	archivist *archivist.Notifier
 
 	userID      id.UserID
 	displayName string
@@ -55,12 +58,12 @@ type Bot struct {
 	promptSetup sync.Map // id.EventID -> chan struct{}
 }
 
-func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client, links *igdb.Linker) *Bot {
+func New(cfg *config.Config, log zerolog.Logger, st *store.Store, l *llm.Client, fc *forge.Client, links *igdb.Linker, arch *archivist.Notifier) *Bot {
 	ignored := map[id.UserID]bool{}
 	for _, u := range cfg.Matrix.IgnoredUsers {
 		ignored[id.UserID(u)] = true
 	}
-	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, igdb: links, rooms: map[id.RoomID]bool{}, ignored: ignored}
+	return &Bot{cfg: cfg, log: log, store: st, llm: l, forge: fc, igdb: links, archivist: arch, rooms: map[id.RoomID]bool{}, ignored: ignored}
 }
 
 // Run logs in, sets up encryption, joins the configured rooms and syncs until ctx is cancelled.

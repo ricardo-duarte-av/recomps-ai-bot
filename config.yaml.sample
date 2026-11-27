@@ -82,6 +82,16 @@ igdb:
   client_id: ""
   client_secret: ""
 
+archivist:
+  # Optional: a matrix-archivist (github.com/ricardo-duarte-av/matrix-archivist)
+  # that archives the repos in this list, with this bot's /api/recomps as one of
+  # its sources. The bot calls that source's sync hook whenever an entry is added
+  # or removed, so new repos are cloned right away instead of at the archivist's
+  # next polling interval. Leave hook_url empty to turn it off.
+  hook_url: ""        # e.g. http://archivist:8080/hooks/sources/recomps
+  # The source's hook_token in the archivist's config (openssl rand -hex 32).
+  hook_token: ""
+
 database:
   path: /data/sqlite.db
 

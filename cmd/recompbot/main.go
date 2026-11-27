@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/archivist"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/bot"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/config"
 	"github.com/ricardo-duarte-av/recomps-ai-bot/internal/forge"
@@ -52,9 +53,16 @@ func main() {
 		go linker.Run(ctx)
 	}
 
+	var arch *archivist.Notifier
+	if cfg.Archivist.IsEnabled() {
+		arch = archivist.New(cfg.Archivist.HookURL, cfg.Archivist.HookToken,
+			log.With().Str("component", "archivist").Logger())
+		go arch.Run(ctx)
+	}
+
 	b := bot.New(cfg, log, st,
 		llm.New(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL, cfg.OpenAI.ReasoningEffort),
-		forge.NewClient(forgeHosts(cfg), cfg.Forges.AllowPrivateNetworks), linker)
+		forge.NewClient(forgeHosts(cfg), cfg.Forges.AllowPrivateNetworks), linker, arch)
 
 	if cfg.Web.IsEnabled() {
 		srv, err := web.New(st, log.With().Str("component", "web").Logger(), cfg.Web.Title)

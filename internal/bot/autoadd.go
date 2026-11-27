@@ -84,6 +84,7 @@ func (b *Bot) autoAdd(ctx context.Context, evt *event.Event, e store.Entry) (boo
 	}
 	b.autoAdded.Store(e.RepoURL, autoAddRecord{room: evt.RoomID, at: time.Now()})
 	log.Info().Interface("entry", e).Msg("Auto-added detected repo")
+	b.archivist.Kick() // have the archivist clone it now
 
 	others, err := b.store.TakePendingDetectedAdds(ctx, e.RepoURL)
 	if err != nil {

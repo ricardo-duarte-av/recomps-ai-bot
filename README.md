@@ -91,6 +91,8 @@ Toolkits are listed after the games, per original system. Draft releases are lef
 
 Each supported target platform is stored as its own row. Targets can be operating systems or other consoles/handhelds (e.g. a SNES game recompiled for the Nintendo 3DS): `windows, linux, macos, freebsd, haiku, dos, android, ios, web, switch, 3ds, nds, wiiu, wii, gamecube, n64, gba, vita, psp, ps2, ps3, ps4, ps5, xbox, xbox360, xboxone, dreamcast`. Names are normalized, e.g. Steam Deck/Fedora/Ubuntu/Debian/Arch → `linux`, OSX/Mac → `macos`, New 3DS/2DS → `3ds`, Xbox Series X|S → `xboxone`.
 
+**Archiving:** a [matrix-archivist](https://github.com/ricardo-duarte-av/matrix-archivist) can archive every repository in the list by using this bot's `/api/recomps` as a source. Give that source a `hook_token` in the archivist's config and set `archivist.hook_url` (e.g. `http://archivist:8080/hooks/sources/recomps`, best over the internal Docker network) and `archivist.hook_token` here: whenever an entry is added (confirmed, or auto-added) or removed, the bot calls the archivist's [sync hook](https://github.com/ricardo-duarte-av/matrix-archivist#sync-hook), which fetches the list and starts cloning new repos right away (removed ones are tagged `delisted` there, never deleted). Calls run in the background with a 5-second timeout and no retry, and several changes in a row are merged into one call; a failed call is only logged, since the archivist's own polling picks the change up anyway.
+
 ## Web page
 
 The bot also serves a read-only page (default `http://<host>:8080/`) listing every entry with its game, original system, type, supported OSes, URL and extra info (links in it are clickable). It reads the database on every load and refreshes itself every minute.

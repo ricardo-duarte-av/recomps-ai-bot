@@ -12,16 +12,30 @@ import (
 )
 
 type Config struct {
-	Matrix   Matrix   `yaml:"matrix"`
-	OpenAI   OpenAI   `yaml:"openai"`
-	GitHub   GitHub   `yaml:"github"`
-	Forges   Forges   `yaml:"forges"`
-	Database Database `yaml:"database"`
-	Web      Web      `yaml:"web"`
-	Detect   Detect   `yaml:"detect"`
-	IGDB     IGDB     `yaml:"igdb"`
-	Releases Releases `yaml:"releases"`
+	Matrix    Matrix    `yaml:"matrix"`
+	OpenAI    OpenAI    `yaml:"openai"`
+	GitHub    GitHub    `yaml:"github"`
+	Forges    Forges    `yaml:"forges"`
+	Database  Database  `yaml:"database"`
+	Web       Web       `yaml:"web"`
+	Detect    Detect    `yaml:"detect"`
+	IGDB      IGDB      `yaml:"igdb"`
+	Releases  Releases  `yaml:"releases"`
+	Archivist Archivist `yaml:"archivist"`
 }
+
+// Archivist configures the matrix-archivist sync hook called after the list
+// changes, so the archivist clones new repos right away.
+type Archivist struct {
+	// HookURL is the source's hook, e.g. http://archivist:8080/hooks/sources/recomps.
+	// Empty turns it off.
+	HookURL string `yaml:"hook_url"`
+	// HookToken is the source's hook_token in the archivist's config.
+	HookToken string `yaml:"hook_token"`
+}
+
+// IsEnabled reports whether the archivist hook is configured.
+func (a Archivist) IsEnabled() bool { return a.HookURL != "" }
 
 // Releases configures the daily report of new releases of the listed repos.
 type Releases struct {
@@ -216,6 +230,9 @@ func Load(path string) (*Config, error) {
 	}
 	if (c.IGDB.ClientID == "") != (c.IGDB.ClientSecret == "") {
 		errs = append(errs, errors.New("igdb.client_id and igdb.client_secret must be set together"))
+	}
+	if c.Archivist.IsEnabled() && c.Archivist.HookToken == "" {
+		errs = append(errs, errors.New("archivist.hook_token is required when archivist.hook_url is set"))
 	}
 	if c.Releases.IsEnabled() {
 		t, err := time.Parse("15:04", strings.TrimSpace(c.Releases.Time))

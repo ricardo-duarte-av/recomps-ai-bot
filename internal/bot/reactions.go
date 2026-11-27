@@ -126,6 +126,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			return
 		}
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Msg("Added entry")
+		b.archivist.Kick() // have the archivist clone it now
 		added := fmt.Sprintf("Added %s (%s). Confirmed by %s", e.RepoURL, describe(e), mention(evt.Sender))
 		closeAll("Added", added+".", added+" in another room.")
 		if existing == nil && err == nil {
@@ -140,6 +141,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 			return
 		}
 		log.Info().Str("repo", e.RepoURL).Strs("oses", e.OSes).Int64("rows", n).Msg("Removed entry")
+		b.archivist.Kick() // the archivist tags repos that left the list as delisted
 		closeAll("Removed", fmt.Sprintf("Removed %s from %s for %s. Confirmed by %s.",
 			e.RepoURL, oses.JoinDisplay(e.OSes), subject(e), mention(evt.Sender)), "")
 	}
