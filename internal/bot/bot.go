@@ -43,8 +43,10 @@ type Bot struct {
 	rooms       map[id.RoomID]bool
 	// announceRoom gets a message for each new entry; empty when not configured.
 	announceRoom id.RoomID
-	ignored      map[id.UserID]bool
-	startTime    time.Time
+	// logRoom gets a line for each added entry saying where it came from; empty when not configured.
+	logRoom   id.RoomID
+	ignored   map[id.UserID]bool
+	startTime time.Time
 	// releasesRoom gets the daily release report; empty when not configured.
 	releasesRoom  id.RoomID
 	reportRunning atomic.Bool
@@ -120,6 +122,17 @@ func (b *Bot) Run(ctx context.Context) error {
 		}
 	}
 
+	if r := b.cfg.Matrix.LogRoom; r != "" {
+		roomID, err := b.resolveRoom(ctx, r)
+		if err != nil {
+			return fmt.Errorf("resolving log room %s: %w", r, err)
+		}
+		b.logRoom = roomID
+		if _, err := client.JoinRoom(ctx, r, nil); err != nil {
+			b.log.Warn().Err(err).Str("room", r).Msg("Failed to join log room")
+		}
+	}
+
 	if b.cfg.Releases.IsEnabled() {
 		r := b.cfg.Releases.Room
 		roomID, err := b.resolveRoom(ctx, r)
@@ -178,7 +191,7 @@ func (b *Bot) purgeLoop(ctx context.Context) {
 
 // onMember auto-joins invites to allowed rooms only.
 func (b *Bot) onMember(ctx context.Context, evt *event.Event) {
-	if evt.GetStateKey() != b.userID.String() || (!b.rooms[evt.RoomID] && evt.RoomID != b.announceRoom && evt.RoomID != b.releasesRoom) {
+	if evt.GetStateKey() != b.userID.String() || (!b.rooms[evt.RoomID] && evt.RoomID != b.announceRoom && evt.RoomID != b.releasesRoom && evt.RoomID != b.logRoom) {
 		return
 	}
 	if evt.Content.AsMember().Membership == event.MembershipInvite {

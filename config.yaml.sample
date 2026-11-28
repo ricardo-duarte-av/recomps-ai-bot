@@ -22,6 +22,11 @@ matrix:
   # Optional room (ID or alias) where the bot announces every new entry added to
   # the list. It doesn't need to be in allowed_rooms; the bot only posts there.
   announce_room: ""
+  # Optional room (ID or alias) where the bot logs every entry it adds or updates,
+  # saying which room it came from and who added it (text only, no images).
+  # Leave empty to turn it off. Like announce_room, it doesn't need to be in
+  # allowed_rooms.
+  log_room: ""
   # Optional words that make the bot act on a message without being mentioned,
   # e.g. ["!recomp"]. Matched as whole words, ignoring case. A message starting
   # with a keyword is handled like a mention; one that only contains a keyword

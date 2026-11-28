@@ -129,6 +129,7 @@ func (b *Bot) handleReaction(ctx context.Context, evt *event.Event, promptID id.
 		b.archivist.Kick() // have the archivist clone it now
 		added := fmt.Sprintf("Added %s (%s). Confirmed by %s", e.RepoURL, describe(e), mention(evt.Sender))
 		closeAll("Added", added+".", added+" in another room.")
+		b.logAdd(ctx, e, evt.RoomID, addLog{Manual: true, Update: existing != nil, By: evt.Sender.String(), RequestedBy: p.RequestedBy})
 		if existing == nil && err == nil {
 			b.announce(ctx, e, creditBy(b.userDisplayName(ctx, evt.RoomID, evt.Sender), evt.Sender))
 		}

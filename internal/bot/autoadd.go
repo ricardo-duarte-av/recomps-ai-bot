@@ -97,6 +97,7 @@ func (b *Bot) autoAdd(ctx context.Context, evt *event.Event, e store.Entry) (boo
 				fmt.Sprintf("%s was auto-added from another room.", e.RepoURL))
 		}
 	}
+	b.logAdd(ctx, e, evt.RoomID, addLog{By: evt.Sender.String()})
 	b.announce(ctx, e, "auto-added")
 	b.igdb.Kick() // link the game on the web page
 	return true, nil
